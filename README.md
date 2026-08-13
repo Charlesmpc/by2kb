@@ -26,6 +26,29 @@ That is useful, but it is not the workflow this project wants:
 - Markdown and source JSON should remain the source of truth; a vector database is only
   an optional index.
 
+There is also an obvious alternative that this project deliberately does not take as
+the primary path: sending the video itself to a multimodal bot. In practice it hits
+two walls:
+
+- **Access.** Bots are usually locked out of the watch page — platforms gate playback
+  behind logins and anti-scraping, and generally only allow metadata-level access. The
+  same gating is exactly why subtitle and metadata APIs remain the most reliable entry
+  point.
+- **Cost.** Even when the content is reachable, feeding video into a model consumes
+  orders of magnitude more tokens than working with text.
+
+So `by2kb` works down a cost ladder, from lightest to heaviest:
+
+1. **Native transcript** — if subtitles exist, the job is nearly free: metadata-level
+   access is enough and the payload is small text.
+2. **Audio stream + ASR** — when there are no subtitles, retrieve the audio track and
+   transcribe it.
+3. **Full media download** — when audio and video are not delivered separately,
+   download the original media file (e.g. an mp4) and extract the audio.
+
+Each step down costs more bandwidth, compute, and tokens, so the service always tries
+the lightest step first.
+
 `by2kb` treats a video link as an asynchronous knowledge-ingestion job.
 
 ## Intended experience
@@ -190,7 +213,9 @@ endpoints are where platforms concentrate their anti-scraping defenses (see Phas
 
 When no usable transcript exists:
 
-1. obtain the audio through a configurable media provider;
+1. obtain the audio through a configurable media provider (where a platform delivers
+   audio and video muxed rather than separately, the provider downloads the media file
+   itself — e.g. the original mp4 — and extracts the audio track);
 2. normalize it to an ASR-friendly format;
 3. transcribe it through a configurable ASR provider;
 4. store provenance, timing, model, and confidence metadata;
