@@ -151,6 +151,41 @@ Provider adapters hide platform-specific behavior behind a common contract.
 The service should prefer native transcripts because they are faster, cheaper, and
 usually preserve better timestamps.
 
+#### Known-good retrieval paths (from the prior-art projects)
+
+Both inspiration projects are Chrome extensions, but their retrieval logic is plain
+HTTP and ports to a server-side service directly:
+
+- **Bilibili** ([bilibili-digest](https://github.com/biuworks/bilibili-digest),
+  `lib/bili-api.js` + `lib/wbi.js`) — a three-step flow against official web APIs:
+  1. `GET https://api.bilibili.com/x/web-interface/view?bvid=...` → `aid` / `cid` /
+     title / parts (unsigned);
+  2. `GET https://api.bilibili.com/x/player/wbi/v2?aid=&cid=&bvid=&wts=&w_rid=` →
+     subtitle track list; this call requires **WBI signing** (daily-rotating keys from
+     the `nav` API, a fixed permutation-table mixin key, and an MD5 `w_rid`);
+  3. `GET <track.subtitle_url>` (hdslb CDN) → full transcript JSON
+     `{body: [{from, to, content}]}` in one response, fetched **without** cookies.
+
+  Server-side notes: AI subtitle tracks are usually empty for logged-out sessions, so
+  the service needs its own logged-in `SESSDATA` cookie (dedicated account recommended)
+  plus browser-like headers; business code `-352` means Bilibili risk control blocked
+  the request and should map to a retryable/backoff state.
+- **YouTube** ([youtube-digest](https://github.com/zarazhangrui/youtube-digest)) —
+  delegates entirely to the third-party **Supadata** API
+  (`GET https://api.supadata.ai/v1/transcript?url=...&text=false&mode=native` with an
+  API key; HTTP 202 returns a job id to poll). This is the simplest path and keeps the
+  service clear of YouTube's anti-bot surface, at the cost of a paid dependency.
+  A self-hosted alternative is the
+  [`youtube-transcript-api`](https://github.com/jdepoix/youtube-transcript-api) Python
+  library (used by the
+  [youtube-content skill](https://github.com/NousResearch/hermes-agent/tree/main/skills/media/youtube-content)
+  in hermes-agent), which talks to YouTube directly; it needs no key but breaks
+  occasionally when YouTube changes its player internals, so it should sit behind the
+  same provider interface with its own error taxonomy.
+
+Neither project downloads audio or video streams — and that is deliberate: media
+endpoints are where platforms concentrate their anti-scraping defenses (see Phase 2).
+
 ### Phase 2: audio fallback
 
 When no usable transcript exists:
@@ -164,6 +199,33 @@ When no usable transcript exists:
 The download and ASR providers are intentionally undecided. Platform terms, account
 security, regional restrictions, cost, and deployment environment must be evaluated
 before enabling this path.
+
+#### Phase 2b: browser-based source capture
+
+A browser session can reach what plain HTTP cannot: the watch page itself already
+negotiates a playable stream. When a video has no native transcript, the service can:
+
+1. open the watch URL in a **headless browser** (Playwright/CDP or a managed browser
+   service) using the user's own authenticated profile where needed;
+2. extract the media source the page actually plays — from the player object in the
+   page (e.g. the player response / `playurl` data) or by observing network requests —
+   and download it (typically a segmented DASH/HLS stream assembled with ffmpeg);
+3. feed the audio into the same ASR pipeline as Phase 2.
+
+This is the same idea as consumer "download the page source" tools — e.g. Xunlei's
+new Chrome extension for grabbing page media sources, and hermes-agent's browser
+automation skills (stealth browsing via `scrapling`, managed-browser `browser` tools,
+and Whisper-based ASR skills) — recast as a headless, server-side adapter.
+
+This path is **off by default** and must stay opt-in per deployment:
+
+- it is the most fragile (player internals change often) and the most
+  policy-sensitive route — it exists precisely because platforms gate media streams;
+- it must respect platform terms, copyright, and the user's own account safety
+  (a flagged or banned session is a real cost);
+- provenance must record that the transcript came from browser capture + ASR, with
+  lower confidence than native tracks, so downstream skills and readers can tell the
+  difference.
 
 ## Connectors
 
@@ -265,6 +327,9 @@ machine.
 - [ ] Hosted and self-hosted ASR provider interfaces.
 - [ ] Long-video chunking, alignment, and confidence metadata.
 - [ ] Policy and deployment controls per platform/provider.
+- [ ] Phase 2b: headless-browser source capture adapter (opt-in), extracting the
+      playable media source from the watch page when no native transcript exists,
+      with `browser_capture + asr` provenance.
 
 ## Non-goals for the first release
 
@@ -276,17 +341,26 @@ machine.
 
 ## Prior art
 
-The product direction was informed by:
+`by2kb` was directly inspired by these two projects — they proved the core insight
+that a video's native transcript can be retrieved programmatically and turned into a
+learning artifact, and `by2kb` exists to move that workflow from a browser extension
+into a headless, IM-driven, server-side service:
 
-- [youtube-digest](https://github.com/zarazhangrui/youtube-digest), a Chrome extension
-  that retrieves YouTube transcripts through Supadata and presents learning tools in a
-  side panel;
-- [bilibili-digest](https://github.com/biuworks/bilibili-digest), a Bilibili adaptation
-  that retrieves official subtitle tracks through Bilibili APIs.
+- [youtube-digest](https://github.com/zarazhangrui/youtube-digest) (MIT, © Zara Zhang) —
+  a Chrome extension that retrieves YouTube transcripts through Supadata and presents
+  learning tools (summaries, chapters, translation, notes) in a side panel. It inspired
+  the raw/updated split, the skill-style prompt templates, and the Supadata provider
+  path.
+- [bilibili-digest](https://github.com/biuworks/bilibili-digest) (MIT) — a Bilibili
+  adaptation of the same architecture that retrieves official subtitle tracks directly
+  through Bilibili's web APIs (view → WBI-signed player API → subtitle CDN JSON). It
+  inspired the Bilibili adapter design, including WBI signing, login-gated AI subtitle
+  handling, and risk-control (`-352`) error mapping.
 
 `by2kb` is a new server-side, IM-driven ingestion project. No source code from those
-projects is included at this stage. Their licenses and attribution requirements must be
-reviewed before reusing code in future implementations.
+projects is included at this stage; when their retrieval logic is ported, their MIT
+licenses and attribution requirements (copyright notices, including bilibili-digest's
+"portions © Zara Zhang" credit) must be preserved.
 
 ## Contributing
 

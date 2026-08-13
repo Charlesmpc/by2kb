@@ -7,8 +7,9 @@
 ```text
 IM Adapter ──► Capture API ──► Queue ──► Transcript Worker
                                       │          │
-                                      │          ├─ YouTube adapter
-                                      │          ├─ Bilibili adapter
+                                      │          ├─ YouTube adapter (native transcript)
+                                      │          ├─ Bilibili adapter (native transcript)
+                                      │          ├─ Browser capture adapter (phase 2b, opt-in)
                                       │          └─ Audio/ASR adapter (phase 2)
                                       │
                                       └────► Job Store
@@ -30,11 +31,40 @@ Transcript Worker ──► Normalizer ──► Raw Writer ─┼─► Skill R
 - **Input adapters** authenticate an IM event, extract URLs and user options, and submit jobs.
 - **Source adapters** resolve canonical IDs, metadata, and native transcript tracks.
 - **Media/ASR adapters** are optional phase-two fallbacks and must be independently enabled.
+- **Browser capture adapter** (phase 2b) is a special media provider: it drives a
+  headless browser to the watch page, extracts the media source the page itself plays
+  (player object or observed network requests), downloads the stream, and hands the
+  audio to the ASR adapter. It is opt-in per deployment and records its provenance as
+  `browser_capture + asr`.
 - **Normalizer** converts provider responses into one timestamped transcript schema.
 - **Raw writer** renders deterministic Markdown and preserves provider JSON.
 - **Skill runner** produces a new updated artifact; it never changes raw data.
 - **Knowledge sinks** publish artifacts and return durable destination references.
 - **Notifier** reports queue, completion, partial completion, and actionable failures.
+
+## Native transcript retrieval (phase 1 reference implementations)
+
+The two prior-art projects (see README "Prior art") provide proven retrieval paths
+that port directly to server-side adapters:
+
+- **Bilibili** — three calls against official web APIs:
+  1. `x/web-interface/view?bvid=...` → `aid`/`cid`/metadata (unsigned);
+  2. `x/player/wbi/v2?aid=&cid=&bvid=&wts=&w_rid=` → subtitle track list. Requires WBI
+     signing: daily-rotating `imgKey`/`subKey` from the `nav` API, a fixed
+     permutation-table mixin key, sorted query with `!'()*` stripped, and
+     `w_rid = md5(query + mixin_key)`. Cache keys ≤ 1 hour.
+  3. `GET <subtitle_url>` on the hdslb CDN → full `{body: [{from, to, content}]}` JSON,
+     fetched without cookies.
+  Server-side: supply a logged-in `SESSDATA` cookie (dedicated account) plus
+  browser-like headers for steps 1–2; AI subtitle tracks are usually empty logged-out.
+  Map business code `-352` (risk control) to `rate_limited` with backoff, and
+  `need_login_subtitle` to `needs_auth`.
+- **YouTube** — two interchangeable providers behind one interface:
+  - **Supadata** (`GET api.supadata.ai/v1/transcript?url=...&text=false&mode=native`,
+    API key; HTTP 202 → poll the job id): simplest, no anti-bot exposure, paid.
+  - **youtube-transcript-api** (direct, keyless): self-hosted but breaks when YouTube
+    changes player internals; needs its own retry/error taxonomy.
+  Neither path ever touches media streams.
 
 ## Suggested job states
 
@@ -49,12 +79,20 @@ accepted
   → completed
 ```
 
+Intermediate states for the phase-2 fallback path:
+
+```text
+  → capturing_media        (browser capture or media download in progress)
+  → transcribing           (ASR in progress)
+```
+
 Terminal/exception states:
 
 ```text
 needs_auth
 no_native_transcript
 needs_audio_fallback
+browser_capture_unavailable
 rate_limited
 failed_retryable
 failed_terminal
@@ -130,3 +168,11 @@ replacing evidence.
 - Restrict each knowledge sink token to its target folder/space where possible.
 - Treat imported skills as executable instructions and require review or trust policy.
 - Keep media retrieval disabled by default until provider and platform policies are defined.
+- Browser capture (phase 2b) additional constraints:
+  - disabled by default; enable per deployment and per platform only after reviewing
+    platform terms and the account-safety cost of a flagged session;
+  - run the headless browser with a dedicated, least-privilege profile; never reuse the
+    operator's primary account session;
+  - never persist captured media beyond the ASR step unless the user explicitly opts in;
+  - record `browser_capture + asr` provenance and lower confidence in the raw artifact
+    so downstream consumers can distinguish it from native transcripts.
