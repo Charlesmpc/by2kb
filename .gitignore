@@ -1,0 +1,26 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime data
+library/
+data/
+cache/
+*.db
+*.sqlite*
+
+# Dependencies and build output
+node_modules/
+.venv/
+__pycache__/
+dist/
+build/
+coverage/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
