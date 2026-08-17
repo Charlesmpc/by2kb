@@ -261,6 +261,8 @@ Planned adapters:
 - Telegram bot;
 - Lark/Feishu bot;
 - generic webhook;
+- agent-host adapters — forward the video to your own agent bot (e.g. hermes), which
+  triggers `by2kb` via a plugin; see [Deployment and integration](#deployment-and-integration);
 - later: native mobile share target, PWA, or a minimal browser capture extension.
 
 An input adapter should submit a canonical job; it should not contain transcript logic.
@@ -276,6 +278,63 @@ Planned sinks:
 - generic webhook/API.
 
 Markdown plus the original transcript JSON is the portable source of truth.
+
+## Deployment and integration
+
+The primary interface to `by2kb` is a **CLI**; a long-running **service** is an
+optional upgrade, not a prerequisite. The same binary runs in two execution modes:
+
+- **Local mode (no service).** `by2kb ingest <url>` runs the whole pipeline —
+  resolve, fetch, normalize, raw, skills, updated, sink, notify — in one process,
+  then exits. Job state and idempotency live in a local SQLite store. This is the
+  zero-infrastructure mode: it runs on a laptop, on an agent's server, or anywhere a
+  process can spawn.
+- **Client mode (service deployed).** When `BY2KB_SERVER_URL` is configured, the CLI
+  becomes a thin client: `ingest` submits a job to the service and returns a job id;
+  `status` queries it. The service owns the queue, workers, retries, job store, and
+  notification loop, and exposes the HTTP job API that bots and other callers use.
+
+### Who needs the service?
+
+- **Users without an agent: yes.** A standalone IM bot needs a resident webhook
+  listener, and ingestion is asynchronous (transcript fetch, optional ASR, skill
+  runs), so the queue, retry, and notification loops must live in a durable resident
+  process — that is the service. The bot adapter is just another input adapter calling
+  the service API. ("The bot spawns the CLI per message" works only where the bot
+  framework can itself execute commands, and gives up queueing, retries, and
+  concurrency control; it is not the canonical path.)
+- **Users with an agent: not necessarily.** An agent host already provides the
+  message surface and the notification channel, so `by2kb` does not need its own bot
+  identity at all. A small per-agent adapter triggers the CLI; when volume grows
+  (concurrent jobs, retries, multiple senders), point the CLI at a deployed service
+  and nothing else changes.
+
+### Agent integration (plugin adapters)
+
+For agent-first users, the adapter of record is a **plugin** on the agent side, not a
+`by2kb` bot. The first target is [hermes-agent](https://github.com/NousResearch/hermes-agent):
+
+- a plugin hooking hermes' `pre_gateway_dispatch` message hook matches a bare video
+  URL deterministically — before auth and before the LLM — spawns `by2kb ingest` in a
+  background thread, acknowledges through the agent's own IM adapter, and returns
+  `skip` so the message never reaches the model (zero tokens for the trigger path);
+- a companion skill (and later an MCP server) covers the phrased case — "save this
+  video to my KB" — where the model invokes the CLI through its terminal tool.
+
+Other agents (Claude Code hooks, Codex MCP, ...) follow the same shape: deterministic
+trigger where the agent offers one, skill/MCP otherwise, CLI always as the engine.
+
+### Integration matrix
+
+| Scenario | Trigger | Execution | Service needed |
+| --- | --- | --- | --- |
+| Agent-first (hermes) | plugin hook on a bare video URL (deterministic, pre-LLM) | CLI subprocess, local mode | No (optional upgrade) |
+| Agent-first, phrased | skill / MCP tool (model judgment) | CLI via the agent's terminal | No |
+| No agent | IM bot adapter (Telegram/Lark webhook) | service queue + workers | Yes |
+| Scripted / manual | cron, mobile shortcut, hand-typed command | CLI, either mode | No |
+
+The service is best understood as the CLI's execution substrate: the CLI is the access
+method; the service is where jobs run once they outgrow a single process.
 
 ## Proposed job contract
 

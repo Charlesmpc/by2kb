@@ -42,6 +42,31 @@ Transcript Worker ──► Normalizer ──► Raw Writer ─┼─► Skill R
 - **Knowledge sinks** publish artifacts and return durable destination references.
 - **Notifier** reports queue, completion, partial completion, and actionable failures.
 
+## Execution modes
+
+The same codebase runs two ways; the components above collapse accordingly:
+
+- **Local (CLI-only) mode** — one process per job. The Queue degenerates to the
+  process itself, the Job Store is a local SQLite file (idempotency and dedup still
+  enforced), and the Notifier is a callback to the caller — an agent adapter, a
+  webhook, or an IM reply. No resident daemon, no deployment beyond the binary.
+- **Service mode** — a resident process owns the Queue, Job Store, worker pool,
+  retries, and notification loop, and serves the HTTP job API. The CLI and IM bot
+  adapters are both just clients of this API.
+
+Mode selection is by configuration (e.g. `BY2KB_SERVER_URL`): with it, the CLI is a
+thin client submitting jobs; without it, the CLI executes the pipeline in-process.
+Input adapters (IM bot, agent plugin, cron, manual) are mode-agnostic: they submit a
+canonical job and receive a callback. A deployment can start local (one user, one
+agent) and graduate to service mode (concurrency, retries, multiple senders) without
+changing any adapter.
+
+Agent-side adapters (first target: a hermes plugin on the `pre_gateway_dispatch`
+message hook) sit outside this service entirely — they are the deterministic trigger
+that turns a bare video URL in the agent's IM channel into a submitted job, and they
+deliver results back through the agent's own channel, so `by2kb` needs no bot
+identity of its own in agent-hosted deployments.
+
 ## Native transcript retrieval (phase 1 reference implementations)
 
 The two prior-art projects (see README "Prior art") provide proven retrieval paths
