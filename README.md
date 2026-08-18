@@ -225,6 +225,13 @@ The download and ASR providers are intentionally undecided. Platform terms, acco
 security, regional restrictions, cost, and deployment environment must be evaluated
 before enabling this path.
 
+A proven Doubao AUC reference flow is included for provider design: local audio is
+staged in a private Volcengine TOS bucket, exposed through a 10-minute presigned URL,
+submitted and polled asynchronously, and deleted in a `finally` block. Long audio is
+split into ordered Opus chunks with bounded concurrency. See
+[`docs/reference/doubao-auc-tos-asr.md`](docs/reference/doubao-auc-tos-asr.md) and the
+runnable [`examples/doubao_auc_tos_asr.py`](examples/doubao_auc_tos_asr.py).
+
 #### Phase 2b: browser-based source capture
 
 A browser session can reach what plain HTTP cannot: the watch page itself already
