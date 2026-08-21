@@ -80,10 +80,13 @@ that port directly to server-side adapters:
      `w_rid = md5(query + mixin_key)`. Cache keys ≤ 1 hour.
   3. `GET <subtitle_url>` on the hdslb CDN → full `{body: [{from, to, content}]}` JSON,
      fetched without cookies.
-  Server-side: supply a logged-in `SESSDATA` cookie (dedicated account) plus
-  browser-like headers for steps 1–2; AI subtitle tracks are usually empty logged-out.
-  Map business code `-352` (risk control) to `rate_limited` with backoff, and
-  `need_login_subtitle` to `needs_auth`.
+   Server-side: AI subtitle tracks are usually empty logged-out — the reference
+   extension works because it inherits the user's own browser session, an option a
+   server-side service does not legitimately have. The `SESSDATA` cookie route was
+   evaluated and rejected (`tech-design-m1.md` §7.5), so `by2kb` does not pursue
+   Bilibili native subtitles; this flow remains the reference for WBI signing and
+   error mapping used by the audio path. Map business code `-352` (risk control) to
+   `rate_limited` with backoff.
 - **YouTube** — two interchangeable providers behind one interface:
   - **Supadata** (`GET api.supadata.ai/v1/transcript?url=...&text=false&mode=native`,
     API key; HTTP 202 → poll the job id): simplest, no anti-bot exposure, paid.

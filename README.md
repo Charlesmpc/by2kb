@@ -47,7 +47,10 @@ So `by2kb` works down a cost ladder, from lightest to heaviest:
    download the original media file (e.g. an mp4) and extract the audio.
 
 Each step down costs more bandwidth, compute, and tokens, so the service always tries
-the lightest step first.
+the lightest step first. And at every step it captures content, never the video
+itself: the knowledge-base entry is a cheap, durable gist — transcript or ASR text
+plus a link back — so the platform keeps bearing hosting and anti-scraping cost,
+while a topic worth rewatching stays one click away from the original.
 
 `by2kb` treats a video link as an asynchronous knowledge-ingestion job.
 
@@ -167,9 +170,10 @@ Provider adapters hide platform-specific behavior behind a common contract.
 
 - **YouTube** — retrieve an existing human or auto-caption track through a configurable
   transcript provider. Supadata is one possible provider, not a hard dependency.
-- **Bilibili** — retrieve available official subtitle tracks using Bilibili metadata,
-  WBI-signed player APIs, and an optional authenticated session when a track requires
-  login.
+- **Bilibili** — dropped 2026-08-17: unauthenticated subtitle tracks proved
+  unreachable (23/23 video probe) and the authenticated route was rejected, so
+  Bilibili enters at Phase 2 (audio + ASR) instead. See `docs/tech-design-m1.md`
+  §7.5 and Appendix A.1.
 
 The service should prefer native transcripts because they are faster, cheaper, and
 usually preserve better timestamps.
@@ -189,10 +193,14 @@ HTTP and ports to a server-side service directly:
   3. `GET <track.subtitle_url>` (hdslb CDN) → full transcript JSON
      `{body: [{from, to, content}]}` in one response, fetched **without** cookies.
 
-  Server-side notes: AI subtitle tracks are usually empty for logged-out sessions, so
-  the service needs its own logged-in `SESSDATA` cookie (dedicated account recommended)
-  plus browser-like headers; business code `-352` means Bilibili risk control blocked
-  the request and should map to a retryable/backoff state.
+   Server-side notes: AI subtitle tracks are usually empty for logged-out sessions —
+   the extension works only because it inherits the user's own browser session
+   (`credentials: "include"` on `api.bilibili.com`), an option a server-side service
+   does not legitimately have. The `SESSDATA` route was evaluated and rejected (see
+   `docs/tech-design-m1.md` §7.5), so `by2kb` does not pursue Bilibili native
+   subtitles. Business code `-352` means Bilibili risk control blocked the request and
+   should map to a retryable/backoff state (still relevant to the audio-download
+   path).
 - **YouTube** ([youtube-digest](https://github.com/zarazhangrui/youtube-digest)) —
   delegates entirely to the third-party **Supadata** API
   (`GET https://api.supadata.ai/v1/transcript?url=...&text=false&mode=native` with an
@@ -206,8 +214,11 @@ HTTP and ports to a server-side service directly:
   occasionally when YouTube changes its player internals, so it should sit behind the
   same provider interface with its own error taxonomy.
 
-Neither project downloads audio or video streams — and that is deliberate: media
-endpoints are where platforms concentrate their anti-scraping defenses (see Phase 2).
+Neither project downloads audio or video streams — they deliberately stay on the
+subtitle/metadata surface. Media streams are the fallback for when no native
+transcript exists (see Phase 2); how heavily they are gated differs per platform —
+`docs/tech-design-m1.md` appendix A records what the Bilibili spike actually reached
+unauthenticated.
 
 ### Phase 2: audio fallback
 
@@ -396,9 +407,9 @@ machine.
 - [ ] Job API, queue, persistence, retries, and deduplication.
 - [ ] Telegram input adapter.
 - [ ] YouTube native-transcript adapter.
-- [ ] Bilibili native-transcript adapter.
 - [ ] Timestamp-preserving normalization.
-- [ ] Filesystem/Obsidian Markdown sink.
+- [ ] Filesystem/Obsidian Markdown sink (sink contract pinned in
+      `docs/tech-design-m1.md` §3.7).
 - [ ] Raw and updated document generation.
 - [ ] One default cleanup-and-summary skill.
 - [ ] IM completion/failure notifications.
@@ -407,15 +418,23 @@ machine.
 
 - [ ] Skill registry, per-user defaults, and per-job overrides.
 - [ ] Lark/Feishu input adapter.
-- [ ] Lark Wiki/Docx and Notion sinks.
+- [ ] Lark Wiki/Docx and Notion sinks (projection adapters over the same
+      artifact set, `docs/tech-design-m1.md` §3.7).
 - [ ] Regenerate updated output without refetching the transcript.
 - [ ] Cost, latency, and provider usage reporting.
 
 ### Milestone 3 — Audio and ASR fallback
 
-- [ ] Media retrieval provider interface.
+- [ ] Media retrieval provider interface (contract pinned in
+      `docs/tech-design-m1.md` §3.8; Bilibili chain spike-verified, Appendix A).
+- [ ] Bilibili ingestion via this path — its primary route, since unauthenticated
+      native subtitles were found unreachable and the login route was rejected
+      (see `docs/tech-design-m1.md` §7.5). Note this makes Bilibili ingestion
+      non-free: ASR costs either accuracy (self-hosted) or money (hosted).
 - [ ] Audio normalization worker.
-- [ ] Hosted and self-hosted ASR provider interfaces.
+- [ ] Hosted and self-hosted ASR provider interfaces (contract pinned in
+      `docs/tech-design-m1.md` §3.6; first implementation `doubao_auc`, see
+      `docs/reference/doubao-auc-tos-asr.md`).
 - [ ] Long-video chunking, alignment, and confidence metadata.
 - [ ] Policy and deployment controls per platform/provider.
 - [ ] Phase 2b: headless-browser source capture adapter (opt-in), extracting the
