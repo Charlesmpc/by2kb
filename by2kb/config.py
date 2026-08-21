@@ -36,7 +36,32 @@ def default_home() -> Path:
     return Path(os.environ.get(f"{ENV_PREFIX}HOME") or (Path.home() / ".by2kb"))
 
 
+def load_env_file(path: Path | None = None) -> Path | None:
+    candidates: list[Path] = []
+    if path is not None:
+        candidates.append(path)
+    env_file_var = os.environ.get(f"{ENV_PREFIX}ENV_FILE")
+    if env_file_var:
+        candidates.append(Path(env_file_var))
+    candidates.append(default_home() / ".env")
+    candidates.append(Path.cwd() / ".env")
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        for raw_line in candidate.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key, value = key.strip(), value.strip()
+            if key and value and key not in os.environ:
+                os.environ[key] = value
+        return candidate
+    return None
+
+
 def load_config(home: Path | None = None) -> Config:
+    load_env_file()
     base = home or default_home()
     data: dict = {}
     config_file = base / "config.toml"

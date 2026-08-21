@@ -7,8 +7,9 @@ Forward a YouTube or Bilibili link to an IM bot; a background service retrieves 
 available transcript, preserves a raw version, optionally processes it with your
 personal skills, and delivers both versions to the knowledge base you control.
 
-> **Project status: planning / pre-alpha.** This repository currently defines the
-> product, data contract, and roadmap. The ingestion service is not implemented yet.
+> **Project status: early implementation.** The Bilibili audio+ASR ingestion
+> pipeline works in local CLI mode (see [Quickstart](#quickstart-local-mode));
+> the YouTube adapter, service mode, and IM adapters are not implemented yet.
 
 The name can be read as **B/Y to KB** — Bilibili and YouTube to Knowledge Base — while
 the architecture is intended to support more video sources over time.
@@ -296,6 +297,27 @@ Planned sinks:
 - generic webhook/API.
 
 Markdown plus the original transcript JSON is the portable source of truth.
+
+## Quickstart (local mode)
+
+Requires Python 3.12+ and `ffmpeg`/`ffprobe` on PATH (long-audio chunking and
+duration detection).
+
+```bash
+python -m pip install -e ".[asr-doubao]"
+cp .env.example .env        # fill in TOS + Doubao AUC credentials (and optionally LLM)
+python -m by2kb.cli ingest "https://www.bilibili.com/video/<bvid>/"
+```
+
+`.env` is loaded from `$BY2KB_ENV_FILE`, `<BY2KB_HOME>/.env` (default
+`~/.by2kb/.env`), or `./.env`. Artifacts land in
+`<library>/bilibili/<bvid>/{source.json,transcript.json,raw.md,updated.md}`;
+`updated.md` is produced only when LLM credentials are configured. Exit codes:
+0 completed, 1 terminal failure, 2 retryable, 3 needs auth, 4 duplicate.
+
+Bilibili ingestion goes straight to audio+ASR (native subtitles are not
+pursued — `docs/tech-design-m1.md` §7.5); ASR setup details live in
+[`docs/reference/doubao-auc-tos-asr.md`](docs/reference/doubao-auc-tos-asr.md).
 
 ## Deployment and integration
 
