@@ -43,8 +43,9 @@ class DoubaoAucConfig:
     access_key: str
     secret_key: str
     bucket: str
-    app_id: str
-    access_token: str
+    api_key: str | None = None
+    app_id: str | None = None
+    access_token: str | None = None
     region: str = "ap-southeast-1"
     endpoint: str = ""
     resource_id: str = "volc.seedasr.auc"
@@ -65,8 +66,9 @@ class DoubaoAucConfig:
             access_key=required("VOLC_ACCESS_KEY_ID"),
             secret_key=required("VOLC_SECRET_ACCESS_KEY"),
             bucket=required("TOS_BUCKET"),
-            app_id=required("DOUBAO_APPID"),
-            access_token=required("DOUBAO_ACCESS_TOKEN"),
+            api_key=os.environ.get("DOUBAO_API_KEY") or None,
+            app_id=os.environ.get("DOUBAO_APPID") or None,
+            access_token=os.environ.get("DOUBAO_ACCESS_TOKEN") or None,
             region=region,
             endpoint=endpoint,
             resource_id=os.environ.get("DOUBAO_RESOURCE_ID") or "volc.seedasr.auc",
@@ -85,11 +87,19 @@ def _describe(audio_format: str) -> tuple[str, str | None, str]:
 def _headers(config: DoubaoAucConfig, request_id: str, *, submit: bool) -> dict[str, str]:
     headers = {
         "Content-Type": "application/json",
-        "X-Api-App-Key": config.app_id,
-        "X-Api-Access-Key": config.access_token,
         "X-Api-Resource-Id": config.resource_id,
         "X-Api-Request-Id": request_id,
     }
+    if config.api_key:
+        headers["X-Api-Key"] = config.api_key
+    elif config.app_id and config.access_token:
+        headers["X-Api-App-Key"] = config.app_id
+        headers["X-Api-Access-Key"] = config.access_token
+    else:
+        raise ConfigError(
+            "missing required environment variable: DOUBAO_API_KEY "
+            "(or legacy DOUBAO_APPID + DOUBAO_ACCESS_TOKEN)"
+        )
     if submit:
         headers["X-Api-Sequence"] = "-1"
     return headers

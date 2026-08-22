@@ -76,12 +76,14 @@ POST https://openspeech.bytedance.com/api/v3/auc/bigmodel/query
 Important request headers:
 
 ```text
-X-Api-App-Key:      <app id>
-X-Api-Access-Key:   <access token>
+X-Api-Key:          <new-console API key>
 X-Api-Resource-Id:  volc.seedasr.auc   # configurable; verify for the account/product
 X-Api-Request-Id:   <one UUID reused for submit and query>
 X-Api-Sequence:     -1                 # submit only
 ```
+
+Legacy-console credentials remain supported as a fallback through
+`X-Api-App-Key` plus `X-Api-Access-Key`, but `DOUBAO_API_KEY` takes precedence.
 
 The JSON request enables inverse text normalization and punctuation:
 
@@ -132,6 +134,8 @@ VOLC_SECRET_ACCESS_KEY=...
 TOS_REGION=ap-southeast-1
 TOS_BUCKET=...
 TOS_S3_ENDPOINT=tos-s3-ap-southeast-1.volces.com
+DOUBAO_API_KEY=...
+# Legacy-console fallback only:
 DOUBAO_APPID=...
 DOUBAO_ACCESS_TOKEN=...
 DOUBAO_RESOURCE_ID=volc.seedasr.auc
