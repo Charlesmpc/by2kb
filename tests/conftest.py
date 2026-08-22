@@ -21,10 +21,12 @@ class FakeResponse:
         status_code: int = 200,
         payload: dict | None = None,
         url: str = "",
+        headers: dict[str, str] | None = None,
     ):
         self.status_code = status_code
         self._payload = payload or {}
         self.url = url
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -50,7 +52,8 @@ class FakeRedirectClient:
         self.calls += 1
         if self.error is not None:
             raise self.error
-        return FakeResponse(200, url=self.final_url)
+        assert kwargs.get("follow_redirects") is False
+        return FakeResponse(302, url=url, headers={"location": self.final_url})
 
 
 import pytest

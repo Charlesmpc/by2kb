@@ -51,17 +51,18 @@ def resolve(url: str) -> SourceIdentity:
 
 async def expand_short_url(client: httpx.AsyncClient, url: str) -> str:
     try:
-        response = await client.get(url, headers=_headers(), follow_redirects=True)
+        response = await client.get(url, headers=_headers(), follow_redirects=False)
     except httpx.HTTPError as exc:
         raise TransientProviderError(
             f"short link expansion failed: {exc}", provider="bilibili"
         ) from exc
-    if response.status_code >= 400:
+    location = response.headers.get("location")
+    if response.status_code not in range(300, 400) or not location:
         raise TransientProviderError(
             f"short link expansion failed: HTTP {response.status_code}",
             provider="bilibili",
         )
-    return str(response.url)
+    return str(httpx.URL(url).join(location))
 
 
 def _headers(referer: str | None = None) -> dict[str, str]:
