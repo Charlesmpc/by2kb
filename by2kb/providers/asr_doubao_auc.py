@@ -25,6 +25,8 @@ STATUS_SILENT = "20000003"
 CHUNK_THRESHOLD_S = 75.0
 CHUNK_SECONDS = 60
 CHUNK_TIMEOUT_S = 300.0
+CHUNK_MAX_ATTEMPTS = 3
+CHUNK_RETRY_DELAY_S = 2.0
 MAX_CONCURRENT_CHUNKS = 2
 
 _FORMATS = {
@@ -189,8 +191,15 @@ class DoubaoAucAsrProvider:
             )
 
             async def run(chunk: Path) -> str:
-                async with semaphore:
-                    return await self._transcribe_one(chunk, "ogg", chunk_options)
+                for attempt in range(1, CHUNK_MAX_ATTEMPTS + 1):
+                    try:
+                        async with semaphore:
+                            return await self._transcribe_one(chunk, "ogg", chunk_options)
+                    except TransientProviderError:
+                        if attempt == CHUNK_MAX_ATTEMPTS:
+                            raise
+                        await asyncio.sleep(CHUNK_RETRY_DELAY_S * (2 ** (attempt - 1)))
+                raise AssertionError("unreachable")
 
             texts = await asyncio.gather(*(run(chunk) for chunk in chunks))
             return "".join(text.strip() for text in texts if text.strip())

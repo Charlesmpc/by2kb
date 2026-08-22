@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from by2kb.errors import TerminalProviderError
+from by2kb.errors import TerminalProviderError, TransientProviderError
 from by2kb.providers.asr import AsrOptions
 from by2kb.providers.asr_doubao_auc import DoubaoAucConfig, _headers
 from by2kb.providers.asr_doubao_auc import DoubaoAucAsrProvider
@@ -127,3 +127,43 @@ async def test_chunk_timeout_allows_slow_doubao_queue(tmp_path, monkeypatch):
 
     assert text == "done"
     assert observed_timeouts == [300.0]
+
+
+@pytest.mark.asyncio
+async def test_chunk_retries_only_transient_failure(tmp_path, monkeypatch):
+    source = tmp_path / "source.m4a"
+    source.write_bytes(b"audio")
+    attempts = 0
+    provider = DoubaoAucAsrProvider(
+        DoubaoAucConfig("ak", "sk", "bucket", api_key="key")
+    )
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self):
+            return b"", b""
+
+    async def fake_subprocess(*args, **kwargs):
+        pattern = Path(args[-1])
+        Path(str(pattern).replace("%03d", "000")).write_bytes(b"chunk")
+        return FakeProcess()
+
+    async def fake_one(path: Path, audio_format: str, options: AsrOptions) -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TransientProviderError("timed out", provider="doubao_auc")
+        return "recovered"
+
+    async def no_delay(seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("asyncio.create_subprocess_exec", fake_subprocess)
+    monkeypatch.setattr("asyncio.sleep", no_delay)
+    monkeypatch.setattr(provider, "_transcribe_one", fake_one)
+
+    text = await provider._transcribe_chunked(source, AsrOptions(timeout_s=540))
+
+    assert text == "recovered"
+    assert attempts == 2
