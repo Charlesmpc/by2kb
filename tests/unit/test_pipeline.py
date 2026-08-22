@@ -130,7 +130,10 @@ def test_write_artifacts_creates_three_files(tmp_path, identity):
     outputs = write_artifacts(
         tmp_path, source_payload={"view": {"bvid": "BV1jmbD65EP2"}}, normalized=normalized
     )
-    assert set(outputs) == {"source.json", "transcript.json", "raw.md"}
+    assert set(outputs) == {"source_json", "transcript_json", "raw_md"}
+    assert outputs["source_json"].name == "source.json"
+    assert outputs["transcript_json"].name == "transcript.json"
+    assert outputs["raw_md"].name == "t-BV1jmbD65EP2.raw.md"
     for path in outputs.values():
         assert path.is_file() and path.stat().st_size > 0
 

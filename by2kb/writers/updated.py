@@ -4,7 +4,7 @@ from pathlib import Path
 
 from by2kb.jobs.model import utcnow_iso
 from by2kb.normalize import NormalizedTranscript
-from by2kb.writers.raw import UPDATED_MD, render_frontmatter
+from by2kb.writers.raw import render_frontmatter
 
 
 def render_updated_md(
@@ -15,6 +15,7 @@ def render_updated_md(
     skill_version: str,
     model: str,
     provider: str,
+    raw_ref: str = "raw.md",
 ) -> str:
     source = normalized.source
     frontmatter = render_frontmatter(
@@ -28,15 +29,15 @@ def render_updated_md(
             "model": model,
             "provider": provider,
             "processed_at": utcnow_iso(),
-            "raw_ref": "./raw.md",
+            "raw_ref": f"./{raw_ref}",
             "confidence": "high" if normalized.transcript.kind != "asr" else "medium",
         }
     )
     return f"{frontmatter}\n\n{body.rstrip()}\n"
 
 
-def write_updated_md(target_dir: Path, content: str) -> Path:
+def write_updated_md(target_dir: Path, content: str, *, filename: str) -> Path:
     target_dir.mkdir(parents=True, exist_ok=True)
-    path = target_dir / UPDATED_MD
+    path = target_dir / filename
     path.write_text(content, encoding="utf-8")
     return path

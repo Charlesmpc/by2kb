@@ -4,12 +4,15 @@ import hashlib
 import json
 from pathlib import Path
 
+from by2kb.filenames import markdown_artifact_name
 from by2kb.normalize import NormalizedTranscript, format_timestamp
 
 SOURCE_JSON = "source.json"
 TRANSCRIPT_JSON = "transcript.json"
-RAW_MD = "raw.md"
-UPDATED_MD = "updated.md"
+
+KIND_SOURCE_JSON = "source_json"
+KIND_TRANSCRIPT_JSON = "transcript_json"
+KIND_RAW_MD = "raw_md"
 
 
 def _yaml_escape(value: object) -> str:
@@ -67,19 +70,22 @@ def write_artifacts(
 ) -> dict[str, Path]:
     target_dir.mkdir(parents=True, exist_ok=True)
     raw_md = render_raw_md(normalized)
+    raw_name = markdown_artifact_name(
+        normalized.source.title, normalized.source.video_id, "raw"
+    )
     outputs = {
-        SOURCE_JSON: target_dir / SOURCE_JSON,
-        TRANSCRIPT_JSON: target_dir / TRANSCRIPT_JSON,
-        RAW_MD: target_dir / RAW_MD,
+        KIND_SOURCE_JSON: target_dir / SOURCE_JSON,
+        KIND_TRANSCRIPT_JSON: target_dir / TRANSCRIPT_JSON,
+        KIND_RAW_MD: target_dir / raw_name,
     }
-    outputs[SOURCE_JSON].write_text(
+    outputs[KIND_SOURCE_JSON].write_text(
         json.dumps(source_payload, ensure_ascii=False, indent=1) + "\n",
         encoding="utf-8",
     )
-    outputs[TRANSCRIPT_JSON].write_text(
+    outputs[KIND_TRANSCRIPT_JSON].write_text(
         normalized.model_dump_json(indent=1) + "\n", encoding="utf-8"
     )
-    outputs[RAW_MD].write_text(raw_md, encoding="utf-8")
+    outputs[KIND_RAW_MD].write_text(raw_md, encoding="utf-8")
     return outputs
 
 

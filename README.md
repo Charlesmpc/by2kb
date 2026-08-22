@@ -93,20 +93,23 @@ From the user's point of view:
 
 ## Output model
 
-Every accepted video gets a stable content directory:
+Every accepted video gets a stable content directory. JSON artifacts use fixed
+names; Markdown artifacts are named `<Title>-<video-id>.{raw,updated}.md` so
+ordinary file search identifies the video (naming contract:
+`docs/tech-design-m1.md` §3.4):
 
 ```text
 library/
   youtube/<video-id>/
     source.json
     transcript.json
-    raw.md
-    updated.md
+    <Title>-<video-id>.raw.md
+    <Title>-<video-id>.updated.md
   bilibili/<bvid>/
     source.json
     transcript.json
-    raw.md
-    updated.md
+    <Title>-<bvid>.raw.md
+    <Title>-<bvid>.updated.md
 ```
 
 ### `raw.md`

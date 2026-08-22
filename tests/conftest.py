@@ -16,9 +16,15 @@ NAV_PAYLOAD = {
 
 
 class FakeResponse:
-    def __init__(self, status_code: int = 200, payload: dict | None = None):
+    def __init__(
+        self,
+        status_code: int = 200,
+        payload: dict | None = None,
+        url: str = "",
+    ):
         self.status_code = status_code
         self._payload = payload or {}
+        self.url = url
 
     def json(self):
         return self._payload
@@ -34,9 +40,30 @@ class FakeClient:
         return FakeResponse(200, self._payload)
 
 
+class FakeRedirectClient:
+    def __init__(self, final_url: str = "", error: Exception | None = None):
+        self.final_url = final_url
+        self.error = error
+        self.calls = 0
+
+    async def get(self, url, **kwargs):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return FakeResponse(200, url=self.final_url)
+
+
 import pytest
 
 
 @pytest.fixture
 def httpx_mock_client():
     return FakeClient()
+
+
+@pytest.fixture
+def make_redirect_client():
+    def factory(final_url: str = "", error: Exception | None = None):
+        return FakeRedirectClient(final_url=final_url, error=error)
+
+    return factory

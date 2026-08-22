@@ -182,7 +182,26 @@ now means local→service graduation changes no adapter code.
 ### 3.4 Artifact formats
 
 `library/<platform>/<video-id>/` contains `source.json`, `transcript.json`
-(the normalized schema from architecture.md), `raw.md`, `updated.md`.
+(the normalized schema from architecture.md), and two Markdown artifacts named
+`<sanitized-title>-<video-id>.raw.md` and `<sanitized-title>-<video-id>.updated.md`.
+
+Naming contract:
+
+- Machine identity stays stable: the directory `library/<platform>/<video-id>/`
+  and the fixed JSON names `source.json` / `transcript.json`.
+- Markdown filenames embed the sanitized video title so filesystem, Obsidian,
+  and sync-tool search results identify the video without opening the file,
+  plus the stable video id so same-title videos cannot overwrite each other.
+- Sanitization: `\ / : * ? " < > |` and control characters become spaces,
+  whitespace is collapsed, leading/trailing dots and spaces are stripped, and
+  Windows reserved stems (CON, PRN, AUX, NUL, COM1–9, LPT1–9) get a `_`
+  prefix; an empty result becomes `untitled`. The title component is truncated
+  at 80 characters, deterministically.
+- JSON payloads and Markdown frontmatter keep the original unsanitized title.
+- On republish, the filesystem sink retires previous Markdown artifacts of the
+  same kind — including legacy fixed-name `raw.md` / `updated.md` — so a title
+  change leaves no orphan; kinds not republished (e.g. an existing `updated.md`
+  when re-running without an LLM) are preserved.
 
 `raw.md` frontmatter (deterministic — same input, byte-identical output):
 

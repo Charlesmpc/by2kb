@@ -13,6 +13,7 @@ from by2kb.errors import (
     UnsupportedUrl,
     category_of,
 )
+from by2kb.filenames import markdown_artifact_name
 from by2kb.jobs.model import STATUS_FOR_ERROR, Job, JobStatus
 from by2kb.jobs.store import JobStore
 from by2kb.normalize import from_asr_result
@@ -24,11 +25,16 @@ from by2kb.providers.bilibili_wbi import WbiKeyCache
 from by2kb.sinks.filesystem import FilesystemSink
 from by2kb.skills.model import find_skill
 from by2kb.skills.runner import OpenAiCompatibleClient, run_skill
-from by2kb.writers.raw import RAW_MD, UPDATED_MD, content_hash, write_artifacts
+from by2kb.writers.raw import content_hash, write_artifacts
 from by2kb.writers.updated import render_updated_md, write_updated_md
 
 EXIT_COMPLETED = 0
 EXIT_DUPLICATE = 4
+
+KIND_SOURCE_JSON = "source_json"
+KIND_TRANSCRIPT_JSON = "transcript_json"
+KIND_RAW_MD = "raw_md"
+KIND_UPDATED_MD = "updated_md"
 
 
 @dataclass
@@ -49,11 +55,18 @@ class IngestOutcome:
         }
 
 
-def resolve_url(url: str):
-    if "bilibili.com" in url or "b23.tv" in url or url.strip().startswith("BV"):
-        return bilibili.resolve(url)
-    if "youtube.com" in url or "youtu.be" in url:
-        raise UnsupportedUrl("YouTube support is not implemented yet (Milestone 1 is Bilibili-first)")
+async def resolve_url(url: str, client: httpx.AsyncClient):
+    candidate = (url or "").strip()
+    lowered = candidate.lower()
+    if "b23.tv" in lowered:
+        target = await bilibili.expand_short_url(client, candidate)
+        return bilibili.resolve(target)
+    if "bilibili.com" in lowered or candidate.startswith("BV"):
+        return bilibili.resolve(candidate)
+    if "youtube.com" in lowered or "youtu.be" in lowered:
+        raise UnsupportedUrl(
+            "YouTube support is not implemented yet (Milestone 1 is Bilibili-first)"
+        )
     raise UnsupportedUrl(f"unsupported URL: {url}")
 
 
@@ -84,38 +97,41 @@ async def ingest_url(
     store = JobStore(config.db_path)
     job: Job | None = None
     try:
-        try:
-            identity = resolve_url(url)
-        except UnsupportedUrl as error:
-            return IngestOutcome(
-                exit_code=error.exit_code, status="failed_terminal", message=str(error)
-            )
-
-        existing = store.find_existing(identity.platform, identity.video_id)
-        if existing is not None and not refresh:
-            if existing.status == JobStatus.COMPLETED:
-                artifacts = {a["kind"]: a["path"] for a in store.artifacts(existing.id)}
-                raise DuplicateJob(
-                    f"already ingested: {identity.platform}/{identity.video_id}",
-                    job_id=existing.id,
+        async with httpx.AsyncClient(
+            timeout=60, follow_redirects=True, max_redirects=5
+        ) as client:
+            try:
+                identity = await resolve_url(url, client)
+            except UnsupportedUrl as error:
+                return IngestOutcome(
+                    exit_code=error.exit_code,
+                    status="failed_terminal",
+                    message=str(error),
                 )
-            job = existing
-        if job is None:
-            job = Job(
-                id=uuid.uuid4().hex,
-                platform=identity.platform,
-                video_id=identity.video_id,
-                requested_by=requested_by,
-                destination=config.destination,
-            )
-            if existing is None:
-                store.create_job(job)
 
-        options = FetchOptions(preferred_languages=config.preferred_languages)
-        work_dir = config.home / "jobs" / job.id
-        work_dir.mkdir(parents=True, exist_ok=True)
+            existing = store.find_existing(identity.platform, identity.video_id)
+            if existing is not None and not refresh:
+                if existing.status == JobStatus.COMPLETED:
+                    raise DuplicateJob(
+                        f"already ingested: {identity.platform}/{identity.video_id}",
+                        job_id=existing.id,
+                    )
+                job = existing
+            if job is None:
+                job = Job(
+                    id=uuid.uuid4().hex,
+                    platform=identity.platform,
+                    video_id=identity.video_id,
+                    requested_by=requested_by,
+                    destination=config.destination,
+                )
+                if existing is None:
+                    store.create_job(job)
 
-        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+            options = FetchOptions(preferred_languages=config.preferred_languages)
+            work_dir = config.home / "jobs" / job.id
+            work_dir.mkdir(parents=True, exist_ok=True)
+
             store.update_status(job.id, JobStatus.RESOLVING)
             info = await bilibili.fetch_video_info(client, identity.video_id)
 
@@ -155,9 +171,15 @@ async def ingest_url(
                 if skill is not None:
                     llm = OpenAiCompatibleClient(config.llm, client)
                     body = await run_skill(
-                        skill, normalized, artifacts[RAW_MD].read_text(encoding="utf-8"), llm
+                        skill,
+                        normalized,
+                        artifacts[KIND_RAW_MD].read_text(encoding="utf-8"),
+                        llm,
                     )
-                    artifacts[UPDATED_MD] = write_updated_md(
+                    updated_name = markdown_artifact_name(
+                        info.title, identity.video_id, "updated"
+                    )
+                    artifacts[KIND_UPDATED_MD] = write_updated_md(
                         staging,
                         render_updated_md(
                             normalized,
@@ -166,7 +188,9 @@ async def ingest_url(
                             skill_version=skill.version,
                             model=llm.model,
                             provider=llm.provider,
+                            raw_ref=artifacts[KIND_RAW_MD].name,
                         ),
+                        filename=updated_name,
                     )
                     store.update_status(job.id, JobStatus.UPDATED_PUBLISHED)
 
