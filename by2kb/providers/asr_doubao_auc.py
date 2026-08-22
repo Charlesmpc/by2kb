@@ -24,6 +24,7 @@ STATUS_PROCESSING = "20000001"
 STATUS_SILENT = "20000003"
 CHUNK_THRESHOLD_S = 75.0
 CHUNK_SECONDS = 60
+CHUNK_TIMEOUT_S = 300.0
 MAX_CONCURRENT_CHUNKS = 2
 
 _FORMATS = {
@@ -144,11 +145,6 @@ class DoubaoAucAsrProvider:
         size = path.stat().st_size
         if size <= 0:
             raise TerminalProviderError("audio file is empty", provider=self.name)
-        if size > MAX_AUDIO_BYTES:
-            raise TerminalProviderError(
-                f"audio file exceeds {MAX_AUDIO_BYTES // (1024 * 1024)} MiB limit",
-                provider=self.name,
-            )
 
         duration = audio.duration_s or await _probe_duration(path)
         if duration is not None and duration > CHUNK_THRESHOLD_S:
@@ -189,7 +185,7 @@ class DoubaoAucAsrProvider:
 
             semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHUNKS)
             chunk_options = options.model_copy(
-                update={"timeout_s": min(options.timeout_s, 150.0)}
+                update={"timeout_s": min(options.timeout_s, CHUNK_TIMEOUT_S)}
             )
 
             async def run(chunk: Path) -> str:
@@ -201,6 +197,11 @@ class DoubaoAucAsrProvider:
 
     async def _transcribe_one(self, path: Path, audio_format: str, options: AsrOptions) -> str:
         config = self._config
+        if path.stat().st_size > MAX_AUDIO_BYTES:
+            raise TerminalProviderError(
+                f"audio file exceeds {MAX_AUDIO_BYTES // (1024 * 1024)} MiB limit",
+                provider=self.name,
+            )
         fmt, codec, content_type = _describe(audio_format)
         s3 = self._boto3_client()
         object_key = f"by2kb-audio/{time.strftime('%Y%m%d')}/{uuid.uuid4().hex}{path.suffix.lower()}"
