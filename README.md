@@ -2,15 +2,63 @@
 
 **Forward a video. Keep the knowledge.**
 
-`by2kb` turns interesting videos into durable Markdown for your own knowledge base.
-Forward a YouTube or Bilibili link to an IM bot; a background service retrieves the
-available transcript, preserves a raw version, and can use either an agent host's
-existing model or an API-accessible LLM to produce both a short interest-check abstract
-and long-form study notes in the knowledge base you control.
+`by2kb` turns a video URL into three durable Markdown artifacts in your own knowledge
+base: the evidence-preserving transcript, a short “is this worth reading?” abstract,
+and long-form study notes.
 
-> **Project status: early implementation.** The Bilibili audio+ASR ingestion
-> pipeline works in local CLI mode (see [Quickstart](#quickstart-local-mode));
-> the YouTube adapter, service mode, and IM adapters are not implemented yet.
+The primary user is an **agent user**. Send a Bilibili URL to an agent such as Hermes;
+`by2kb` handles media retrieval, private TOS staging and ASR, while the agent uses its
+existing model authentication to produce both summaries. Standalone users can run the
+same pipeline with their own OpenAI-compatible API key.
+
+> **Current release: v0.2.0.** Bilibili ingestion, Doubao AUC ASR, local filesystem
+> output, API enrichment, the external-agent protocol, guided initialization, and the
+> Hermes plugin are implemented. YouTube, a resident service, native Telegram/Lark
+> bots, and remote knowledge-base sinks remain planned.
+
+## Start here
+
+Requires Python 3.12+, `pipx`, and `ffmpeg`/`ffprobe` on PATH. Until the first PyPI
+publication, install the versioned release artifact directly from GitHub:
+
+```bash
+pipx install "by2kb[asr-doubao] @ https://github.com/Charlesmpc/by2kb/releases/download/v0.2.0/by2kb-0.2.0-py3-none-any.whl"
+by2kb init
+```
+
+`by2kb init` guides you through four decisions:
+
+1. where the local knowledge base should live;
+2. which private Volcengine TOS bucket temporarily stages audio;
+3. how to authenticate to Doubao AUC ASR;
+4. whether summaries run in an agent (`agent`), through a standalone LLM API (`api`),
+   or remain disabled.
+
+### Agent-first: Hermes
+
+After selecting `agent` during initialization:
+
+```bash
+by2kb agent install hermes
+hermes gateway restart
+```
+
+Now an authorized user can send a Bilibili or `b23.tv` URL to the Telegram Hermes bot.
+The plugin acknowledges immediately, runs transcription in the background, calls the
+Hermes host model twice, writes all three artifacts, and replies with the short abstract
+and knowledge-base paths. No MCP server and no separate by2kb LLM key are required.
+
+### Standalone
+
+Select `api` during initialization, provide an OpenAI-compatible endpoint, model and
+API key, then run:
+
+```bash
+by2kb ingest "https://www.bilibili.com/video/<bvid>/"
+```
+
+See [Agent integration](docs/agent-integration.md) for the reusable
+`ingest → claim → complete/fail` contract used by other agent hosts.
 
 The name can be read as **B/Y to KB** — Bilibili and YouTube to Knowledge Base — while
 the architecture is intended to support more video sources over time.
@@ -56,28 +104,29 @@ while a topic worth rewatching stays one click away from the original.
 
 `by2kb` treats a video link as an asynchronous knowledge-ingestion job.
 
-## Intended experience
+## Agent-first experience
 
 ```text
-YouTube / Bilibili mobile app
+Bilibili mobile app
            │
            │ Share video URL
            ▼
- Telegram / Lark / another IM bot
+ Telegram Hermes bot
            │
            │ Accepted: queued
            ▼
-      by2kb service
+ Hermes plugin + by2kb CLI
            │
            ├─ resolve metadata
-           ├─ fetch native transcript
-           ├─ normalize timestamps
+           ├─ retrieve audio
+           ├─ stage privately in TOS and run ASR
+           ├─ normalize transcript
            ├─ save raw Markdown + source JSON
            ├─ create a short abstract
            └─ create long-form study notes
            │
            ▼
- Obsidian / filesystem / Lark Wiki / Notion / custom KB
+ Local filesystem / Obsidian vault
            │
            └─ IM notification with links and status
 ```
@@ -316,22 +365,28 @@ This path is **off by default** and must stay opt-in per deployment:
 
 ### IM inputs
 
-Planned adapters:
+Implemented:
 
-- Telegram bot;
-- Lark/Feishu bot;
+- Hermes plugin with deterministic Bilibili URL interception and Telegram replies;
+- Hermes Skill for natural-language/manual requests.
+
+Planned:
+
+- native Telegram and Lark/Feishu bots for users without an agent host;
 - generic webhook;
-- agent-host adapters — forward the video to your own agent bot (e.g. hermes), which
-  triggers `by2kb` via a plugin; see [Deployment and integration](#deployment-and-integration);
-- later: native mobile share target, PWA, or a minimal browser capture extension.
+- other agent-host adapters;
+- native mobile share target, PWA, or a minimal browser capture extension.
 
 An input adapter should submit a canonical job; it should not contain transcript logic.
 
 ### Knowledge-base outputs
 
-Planned sinks:
+Implemented:
 
-- local/shared filesystem and Obsidian vault;
+- local/shared filesystem and Obsidian vault directory.
+
+Planned:
+
 - Git-backed Markdown repository;
 - Lark/Feishu Wiki or Docx;
 - Notion;
@@ -339,42 +394,7 @@ Planned sinks:
 
 Markdown plus the original transcript JSON is the portable source of truth.
 
-## Quickstart (local mode)
-
-Requires Python 3.12+ and `ffmpeg`/`ffprobe` on PATH (long-audio chunking and
-duration detection).
-
-The package exposes a `by2kb` console entry point and builds as a wheel. Until the
-first PyPI publication, install a checkout into an isolated environment:
-
-```bash
-pipx install '/absolute/path/to/by2kb[asr-doubao]'
-by2kb init
-```
-
-The guided initializer configures the local knowledge-base folder, private TOS audio
-staging, Doubao ASR, and either agent-hosted or API enrichment. The `[asr-doubao]`
-extra is required for the current Bilibili pipeline. After a PyPI release the first
-command becomes `pipx install 'by2kb[asr-doubao]'`.
-
-For an agent-first Hermes installation:
-
-```bash
-by2kb agent install hermes
-hermes gateway restart
-```
-
-The install command copies and enables the bundled Hermes plugin. An authorized user
-can then send a Bilibili or `b23.tv` URL to their Telegram Hermes bot. The plugin
-acknowledges immediately, runs transcription in the background, makes two bounded calls
-through the Hermes host model, and replies with the transcript, abstract, and study-note
-paths. It does not require MCP or a `BY2KB_LLM_API_KEY`.
-
-Standalone users choose `api` during `by2kb init`, then run:
-
-```bash
-by2kb ingest "https://www.bilibili.com/video/<bvid>/"
-```
+## CLI reference
 
 `.env` is loaded from `$BY2KB_ENV_FILE`, `<BY2KB_HOME>/.env` (default
 `~/.by2kb/.env`), or `./.env`. Artifacts land in
@@ -382,6 +402,23 @@ by2kb ingest "https://www.bilibili.com/video/<bvid>/"
 the abstract and study notes are produced by the configured API or external agent.
 Exit codes:
 0 completed, 1 terminal failure, 2 retryable, 3 needs auth, 4 duplicate.
+
+Agent hosts use the durable external-enrichment protocol:
+
+```bash
+by2kb ingest "<video-url>" --enricher external_agent --json
+by2kb enrichment claim <job-id> --json
+by2kb enrichment complete <job-id> \
+  --abstract-file <abstract.md> \
+  --study-file <study.md> \
+  --provider <provider> \
+  --model <model> \
+  --json
+```
+
+The agent is not called recursively. `by2kb` leaves durable pending work, the host
+claims it, performs two bounded model calls, and submits the generated bodies through
+the trusted publication path.
 
 If a video was transcribed before LLM credentials were configured, generate or refresh
 only its two summaries without downloading and transcribing the media again:
@@ -396,46 +433,41 @@ pursued — `docs/tech-design-m1.md` §7.5); ASR setup details live in
 
 ## Deployment and integration
 
-The primary interface to `by2kb` is a **CLI**; a long-running **service** is an
-optional upgrade, not a prerequisite. The same binary runs in two execution modes:
+The implemented interface is a **local CLI**. `by2kb ingest <url>` resolves the video,
+retrieves audio, runs ASR, writes raw artifacts, executes or defers enrichment, and
+publishes to the filesystem. Job state, enrichment leases and idempotency live in a
+local SQLite store. It runs on a laptop, an agent server, or any host that can spawn a
+process.
 
-- **Local mode (no service).** `by2kb ingest <url>` runs the whole pipeline —
-  resolve, fetch, normalize, raw, skills, updated, sink, notify — in one process,
-  then exits. Job state and idempotency live in a local SQLite store. This is the
-  zero-infrastructure mode: it runs on a laptop, on an agent's server, or anywhere a
-  process can spawn.
-- **Client mode (service deployed).** When `BY2KB_SERVER_URL` is configured, the CLI
-  becomes a thin client: `ingest` submits a job to the service and returns a job id;
-  `status` queries it. The service owns the queue, workers, retries, job store, and
-  notification loop, and exposes the HTTP job API that bots and other callers use.
+A resident service and remote client mode are planned for higher-volume deployments;
+`BY2KB_SERVER_URL`, HTTP submission, queues and remote workers are not implemented in
+v0.2.0.
 
 ### Who needs the service?
 
-- **Users without an agent: yes.** A standalone IM bot needs a resident webhook
+- **Users without an agent: eventually.** A standalone IM bot needs a resident webhook
   listener, and ingestion is asynchronous (transcript fetch, optional ASR, skill
   runs), so the queue, retry, and notification loops must live in a durable resident
   process — that is the service. The bot adapter is just another input adapter calling
   the service API. ("The bot spawns the CLI per message" works only where the bot
   framework can itself execute commands, and gives up queueing, retries, and
   concurrency control; it is not the canonical path.)
-- **Users with an agent: not necessarily.** An agent host already provides the
+- **Users with an agent: no.** An agent host already provides the
   message surface and the notification channel, so `by2kb` does not need its own bot
-  identity at all. A small per-agent adapter triggers the CLI; when volume grows
-  (concurrent jobs, retries, multiple senders), point the CLI at a deployed service
-  and nothing else changes.
+  identity at all. A small per-agent adapter triggers the CLI. The Hermes reference
+  integration uses this path today.
 
 ### Agent integration (plugin adapters)
 
 For agent-first users, the adapter of record is a **plugin** on the agent side, not a
 `by2kb` bot. The first target is [hermes-agent](https://github.com/NousResearch/hermes-agent):
 
-- a plugin hooking hermes' `pre_gateway_dispatch` message hook matches a bare video
-  URL deterministically — before auth and before the LLM — spawns `by2kb ingest` in a
-  background thread, acknowledges through the agent's own IM adapter, and returns
-  `skip` so the message never reaches the model (zero tokens for the trigger path);
-- after transcription, the plugin can call Hermes' host-owned LLM twice using the
-  packaged enrichment profiles, or optionally inject a full Agent turn when personal
-  memory and other tools are needed;
+- a plugin hooking Hermes' `pre_gateway_dispatch` message hook matches a video URL
+  deterministically, verifies the sender through Hermes authorization, spawns
+  `by2kb ingest` in a background thread, acknowledges through the agent's own IM
+  adapter, and returns `skip` so the trigger does not enter a model turn;
+- after transcription, the plugin calls Hermes' host-owned LLM twice using the
+  packaged enrichment profiles, without a nested agent loop or separate LLM key;
 - a companion skill covers the phrased case — "save this video to my KB" — where the
   model invokes the CLI through its terminal tool. MCP is not required when both
   programs share a host and filesystem.
@@ -449,13 +481,13 @@ Hermes user journey, target CLI, and implementation status are specified in
 
 | Scenario | Trigger | Execution | Service needed |
 | --- | --- | --- | --- |
-| Agent-first (hermes) | plugin hook on a bare video URL (deterministic, pre-LLM) | CLI subprocess, local mode | No (optional upgrade) |
+| Agent-first (Hermes) | authorized plugin hook on a video URL | CLI subprocess, local mode | No |
 | Agent-first, phrased | skill (model judgment) | CLI via the agent's terminal | No |
-| No agent | IM bot adapter (Telegram/Lark webhook) | service queue + workers | Yes |
-| Scripted / manual | cron, mobile shortcut, hand-typed command | CLI, either mode | No |
+| No agent | direct CLI today; native IM bot later | local CLI / future service | Not today |
+| Scripted / manual | cron, mobile shortcut, hand-typed command | local CLI | No |
 
-The service is best understood as the CLI's execution substrate: the CLI is the access
-method; the service is where jobs run once they outgrow a single process.
+The future service will preserve the same job and enrichment contracts when workloads
+outgrow a single process.
 
 ## Proposed job contract
 
@@ -505,19 +537,21 @@ machine.
 - [x] Define personalized skills as a first-class concept.
 - [x] Keep audio retrieval and ASR behind future provider interfaces.
 
-### Milestone 1 — Native transcript MVP
+### Milestone 1 — Local ingestion MVP
 
-- [ ] Job API, queue, persistence, retries, and deduplication.
-- [ ] Telegram input adapter.
+- [x] Local SQLite job persistence, status tracking, and deduplication.
+- [ ] Remote Job API, queue, and worker service.
+- [x] Telegram input through the Hermes plugin.
+- [ ] Standalone Telegram input adapter for users without an agent.
 - [ ] YouTube native-transcript adapter.
 - [ ] Timestamp-preserving normalization.
-- [ ] Filesystem/Obsidian Markdown sink (sink contract pinned in
+- [x] Filesystem/Obsidian Markdown sink (sink contract pinned in
       `docs/tech-design-m1.md` §3.7).
 - [x] Raw, short-abstract, and long-form study-note generation.
 - [x] Packaged default abstract and deep-study skills.
 - [x] Durable external-agent enrichment protocol and Hermes reference plugin.
 - [x] Guided `by2kb init` for TOS, ASR, enrichment mode, and filesystem output.
-- [ ] IM completion/failure notifications.
+- [x] Hermes IM acknowledgement and completion/failure notifications.
 
 ### Milestone 2 — Personalization and more destinations
 
@@ -528,19 +562,20 @@ machine.
 - [x] Regenerate both summary outputs without refetching the transcript (`--re-enrich`).
 - [ ] Cost, latency, and provider usage reporting.
 
-### Milestone 3 — Audio and ASR fallback
+### Milestone 3 — Audio and ASR
 
-- [ ] Media retrieval provider interface (contract pinned in
+- [x] Media retrieval provider interface (contract pinned in
       `docs/tech-design-m1.md` §3.8; Bilibili chain spike-verified, Appendix A).
-- [ ] Bilibili ingestion via this path — its primary route, since unauthenticated
+- [x] Bilibili ingestion via this path — its primary route, since unauthenticated
       native subtitles were found unreachable and the login route was rejected
       (see `docs/tech-design-m1.md` §7.5). Note this makes Bilibili ingestion
       non-free: ASR costs either accuracy (self-hosted) or money (hosted).
-- [ ] Audio normalization worker.
-- [ ] Hosted and self-hosted ASR provider interfaces (contract pinned in
-      `docs/tech-design-m1.md` §3.6; first implementation `doubao_auc`, see
+- [x] Audio extraction and long-audio chunking with ffmpeg.
+- [x] Hosted ASR provider interface and Doubao AUC implementation (contract pinned in
+      `docs/tech-design-m1.md` §3.6; see
       `docs/reference/doubao-auc-tos-asr.md`).
-- [ ] Long-video chunking, alignment, and confidence metadata.
+- [ ] Additional hosted and self-hosted ASR providers.
+- [ ] Segment-level alignment and confidence metadata.
 - [ ] Policy and deployment controls per platform/provider.
 - [ ] Phase 2b: headless-browser source capture adapter (opt-in), extracting the
       playable media source from the watch page when no native transcript exists,
@@ -579,8 +614,8 @@ licenses and attribution requirements (copyright notices, including bilibili-dig
 
 ## Contributing
 
-The project is at the design stage. Discussions and issues about the following are
-especially welcome:
+The project is in an early public implementation stage. Discussions and issues about
+the following are especially welcome:
 
 - transcript providers and platform reliability;
 - the portable skill format;
