@@ -4,6 +4,8 @@
 
 - Retry transient Doubao AUC failures per long-audio chunk and persist successful
   chunk transcripts so a resumed ingestion does not resubmit completed work.
+- Classify queued, rate-limited, overloaded, and HTTP failure responses correctly;
+  harden concurrent checkpoint writes and cache invalidation.
 
 ## 0.2.0 - 2026-08-23
 

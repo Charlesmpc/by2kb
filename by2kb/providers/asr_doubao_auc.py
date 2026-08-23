@@ -23,12 +23,17 @@ SUBMIT_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/submit"
 QUERY_URL = "https://openspeech.bytedance.com/api/v3/auc/bigmodel/query"
 STATUS_SUCCESS = "20000000"
 STATUS_PROCESSING = "20000001"
+STATUS_QUEUED = "20000002"
 STATUS_SILENT = "20000003"
+STATUS_SUBMISSION_RATE_LIMITED = "45000131"
 CHUNK_THRESHOLD_S = 75.0
 CHUNK_SECONDS = 60
 MAX_CONCURRENT_CHUNKS = 2
 CHUNK_MAX_ATTEMPTS = 3
 CHUNK_RETRY_BASE_DELAY_S = 3.0
+CHECKPOINT_SCHEMA_VERSION = 1
+ENABLE_ITN = True
+ENABLE_PUNC = True
 
 _FORMATS = {
     "ogg": ("ogg", "opus", "audio/ogg"),
@@ -113,6 +118,26 @@ def _response_status(response: httpx.Response) -> tuple[str | None, str | None]:
     return response.headers.get("X-Api-Status-Code"), response.headers.get("X-Api-Message")
 
 
+def _raise_provider_error(response: httpx.Response, *, operation: str) -> None:
+    status_code, message = _response_status(response)
+    detail = {
+        "http_status": response.status_code,
+        "provider_status": status_code,
+    }
+    text = (
+        f"doubao {operation} failed: {status_code or response.status_code} "
+        f"{message or 'unknown error'}"
+    )
+    if (
+        response.status_code in {408, 429}
+        or response.status_code >= 500
+        or status_code == STATUS_SUBMISSION_RATE_LIMITED
+        or (status_code or "").startswith("55")
+    ):
+        raise TransientProviderError(text, provider="doubao_auc", detail=detail)
+    raise TerminalProviderError(text, provider="doubao_auc", detail=detail)
+
+
 class DoubaoAucAsrProvider:
     name = "doubao_auc"
     model = "bigmodel"
@@ -148,11 +173,6 @@ class DoubaoAucAsrProvider:
         size = path.stat().st_size
         if size <= 0:
             raise TerminalProviderError("audio file is empty", provider=self.name)
-        if size > MAX_AUDIO_BYTES:
-            raise TerminalProviderError(
-                f"audio file exceeds {MAX_AUDIO_BYTES // (1024 * 1024)} MiB limit",
-                provider=self.name,
-            )
 
         duration = audio.duration_s or await _probe_duration(path)
         if duration is not None and duration > CHUNK_THRESHOLD_S:
@@ -205,11 +225,14 @@ class DoubaoAucAsrProvider:
         digest.update(
             json.dumps(
                 {
+                    "schema_version": CHECKPOINT_SCHEMA_VERSION,
                     "model": self.model,
                     "resource_id": self._config.resource_id,
                     "language": options.language,
                     "chunk_seconds": CHUNK_SECONDS,
                     "codec": "libopus-32k",
+                    "enable_itn": ENABLE_ITN,
+                    "enable_punc": ENABLE_PUNC,
                 },
                 sort_keys=True,
             ).encode("utf-8")
@@ -222,6 +245,11 @@ class DoubaoAucAsrProvider:
         options: AsrOptions,
         checkpoint_dir: Path,
     ) -> str:
+        checkpoint_root = checkpoint_dir.parent
+        if checkpoint_root.is_symlink() or checkpoint_dir.is_symlink():
+            raise TerminalProviderError(
+                f"unsafe ASR checkpoint symlink: {checkpoint_dir}", provider=self.name
+            )
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         try:
             checkpoint_dir.chmod(0o700)
@@ -231,37 +259,64 @@ class DoubaoAucAsrProvider:
 
         async def run(index: int, chunk: Path) -> str:
             checkpoint = checkpoint_dir / f"chunk-{index:03d}.txt"
+            if checkpoint.is_symlink():
+                raise TerminalProviderError(
+                    f"unsafe ASR checkpoint symlink: {checkpoint}", provider=self.name
+                )
             if checkpoint.is_file():
                 try:
                     return checkpoint.read_text(encoding="utf-8")
-                except (OSError, UnicodeError):
+                except UnicodeError:
                     checkpoint.unlink(missing_ok=True)
+                except OSError as exc:
+                    raise TerminalProviderError(
+                        f"failed to read ASR checkpoint {checkpoint}: {exc}",
+                        provider=self.name,
+                    ) from exc
 
-            async with semaphore:
-                for attempt in range(1, CHUNK_MAX_ATTEMPTS + 1):
-                    try:
+            for attempt in range(1, CHUNK_MAX_ATTEMPTS + 1):
+                try:
+                    async with semaphore:
                         text = await self._transcribe_one(chunk, "ogg", options)
-                    except TransientProviderError as exc:
-                        if attempt == CHUNK_MAX_ATTEMPTS:
-                            raise TransientProviderError(
-                                f"chunk {index} failed after {attempt} attempts: {exc}",
-                                provider=self.name,
-                                detail={"chunk_index": index, "attempts": attempt},
-                            ) from exc
-                        delay = CHUNK_RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
-                        await asyncio.sleep(delay + random.uniform(0, 1))
-                        continue
-                    except TerminalProviderError as exc:
-                        raise TerminalProviderError(
-                            f"chunk {index} failed on attempt {attempt}: {exc}",
+                except TransientProviderError as exc:
+                    if attempt == CHUNK_MAX_ATTEMPTS:
+                        raise TransientProviderError(
+                            f"chunk {index} failed after {attempt} attempts: {exc}",
                             provider=self.name,
                             detail={"chunk_index": index, "attempts": attempt},
                         ) from exc
+                    delay = CHUNK_RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
+                    await self._retry_sleep(delay + random.uniform(0, 1))
+                    continue
+                except TerminalProviderError as exc:
+                    raise TerminalProviderError(
+                        f"chunk {index} failed on attempt {attempt}: {exc}",
+                        provider=self.name,
+                        detail={"chunk_index": index, "attempts": attempt},
+                    ) from exc
 
-                    temporary = checkpoint.with_suffix(".tmp")
-                    temporary.write_text(text, encoding="utf-8")
+                temporary: Path | None = None
+                try:
+                    with tempfile.NamedTemporaryFile(
+                        mode="w",
+                        encoding="utf-8",
+                        dir=checkpoint_dir,
+                        prefix=f".{checkpoint.stem}-",
+                        suffix=".tmp",
+                        delete=False,
+                    ) as handle:
+                        handle.write(text)
+                        temporary = Path(handle.name)
                     temporary.replace(checkpoint)
                     return text
+                except OSError as exc:
+                    raise TerminalProviderError(
+                        f"failed to persist ASR checkpoint {checkpoint}: {exc}",
+                        provider=self.name,
+                    ) from exc
+                finally:
+                    if temporary is not None:
+                        temporary.unlink(missing_ok=True)
             raise AssertionError("unreachable chunk retry state")
 
         results = await asyncio.gather(
@@ -278,8 +333,16 @@ class DoubaoAucAsrProvider:
             texts.append(result)
         return "".join(text.strip() for text in texts if text.strip())
 
+    async def _retry_sleep(self, delay: float) -> None:
+        await asyncio.sleep(delay)
+
     async def _transcribe_one(self, path: Path, audio_format: str, options: AsrOptions) -> str:
         config = self._config
+        if path.stat().st_size > MAX_AUDIO_BYTES:
+            raise TerminalProviderError(
+                f"audio file exceeds {MAX_AUDIO_BYTES // (1024 * 1024)} MiB limit",
+                provider=self.name,
+            )
         fmt, codec, content_type = _describe(audio_format)
         s3 = self._boto3_client()
         object_key = f"by2kb-audio/{time.strftime('%Y%m%d')}/{uuid.uuid4().hex}{path.suffix.lower()}"
@@ -305,13 +368,15 @@ class DoubaoAucAsrProvider:
             audio_payload: dict = {"format": fmt, "url": presigned_url}
             if codec:
                 audio_payload["codec"] = codec
+            if options.language:
+                audio_payload["language"] = options.language
             payload = {
                 "user": {"uid": "by2kb"},
                 "audio": audio_payload,
                 "request": {
                     "model_name": self.model,
-                    "enable_itn": True,
-                    "enable_punc": True,
+                    "enable_itn": ENABLE_ITN,
+                    "enable_punc": ENABLE_PUNC,
                 },
             }
             client = self._client or httpx.AsyncClient(timeout=30)
@@ -321,13 +386,9 @@ class DoubaoAucAsrProvider:
                     headers=_headers(config, request_id, submit=True),
                     content=json.dumps(payload),
                 )
-                status_code, message = _response_status(submitted)
-                if status_code != STATUS_SUCCESS:
-                    raise TerminalProviderError(
-                        f"doubao submit failed: {status_code or submitted.status_code} "
-                        f"{message or 'unknown error'}",
-                        provider=self.name,
-                    )
+                status_code, _ = _response_status(submitted)
+                if not 200 <= submitted.status_code < 300 or status_code != STATUS_SUCCESS:
+                    _raise_provider_error(submitted, operation="submit")
 
                 deadline = time.monotonic() + options.timeout_s
                 while time.monotonic() < deadline:
@@ -337,19 +398,17 @@ class DoubaoAucAsrProvider:
                         headers=_headers(config, request_id, submit=False),
                         content="{}",
                     )
-                    status_code, message = _response_status(queried)
+                    status_code, _ = _response_status(queried)
+                    if not 200 <= queried.status_code < 300:
+                        _raise_provider_error(queried, operation="query")
                     if status_code == STATUS_SUCCESS:
                         result = queried.json().get("result") or {}
                         return str(result.get("text") or "").strip()
-                    if status_code == STATUS_PROCESSING:
+                    if status_code in {STATUS_PROCESSING, STATUS_QUEUED}:
                         continue
                     if status_code == STATUS_SILENT:
                         return ""
-                    raise TerminalProviderError(
-                        f"doubao query failed: {status_code or queried.status_code} "
-                        f"{message or 'unknown error'}",
-                        provider=self.name,
-                    )
+                    _raise_provider_error(queried, operation="query")
                 raise TransientProviderError(
                     f"doubao query timed out after {options.timeout_s:g} seconds",
                     provider=self.name,

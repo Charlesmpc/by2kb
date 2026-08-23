@@ -52,8 +52,9 @@ in source order.
   configuration-addressed `.asr-checkpoints/` directory beside the downloaded audio.
   A resumed ingestion loads those checkpoints instead of resubmitting completed chunks.
 
-The 25 MiB guard applies to each submitted file. Chunking is also a latency/reliability
-control: one slow long-file job cannot hold the whole ingestion worker indefinitely.
+The 25 MiB guard applies to each submitted file, not the original long source before
+chunking. Chunking is also a latency/reliability control: one slow long-file job cannot
+hold the whole ingestion worker indefinitely.
 
 ### Private TOS staging
 
@@ -114,8 +115,14 @@ The adapter reads the business status from response headers, not only the HTTP s
 | --- | --- | --- |
 | `20000000` | success | read `result.text` |
 | `20000001` | processing | continue polling |
+| `20000002` | queued | continue polling |
 | `20000003` | silent/empty audio | return an empty transcript |
-| anything else | provider failure | fail with provider status/message |
+| `45000131` | submission-rate limit | retry the affected chunk |
+| `550xxxx` | internal error / overload | retry the affected chunk |
+| other `450xxxx` | invalid input/request | fail without retrying |
+
+HTTP 408, 429, and 5xx responses are retryable even when the provider status header is
+missing. Other non-2xx responses are terminal unless explicitly classified above.
 
 Polling runs every 1.5 seconds until the configured deadline. Each HTTP request has its
 own 30-second timeout. A by2kb provider should map transport errors, provider errors,
