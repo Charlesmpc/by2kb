@@ -13,6 +13,7 @@ class JobStatus(str, enum.Enum):
     TRANSCRIBING = "transcribing"
     NORMALIZING = "normalizing"
     RAW_PUBLISHED = "raw_published"
+    ENRICHMENT_PENDING = "enrichment_pending"
     ENRICHING = "enriching"
     UPDATED_PUBLISHED = "updated_published"
     COMPLETED = "completed"

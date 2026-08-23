@@ -2,8 +2,7 @@
 
 ## Status
 
-This document records the agreed integration design and separates the current
-implementation from the target agent-hosted workflow.
+This document records the implemented agent-hosted workflow and its extension boundary.
 
 Implemented in `by2kb` today:
 
@@ -12,17 +11,14 @@ Implemented in `by2kb` today:
 - independent short-abstract and deep-study outputs;
 - `--re-enrich`, which regenerates both outputs from stored transcript artifacts by
   calling the configured LLM API directly;
-- packaged default enrichment profiles.
+- packaged default enrichment profiles;
+- the durable `external_agent` executor and `claim|complete|fail` protocol;
+- a bundled Hermes plugin with an authorized-user URL hook and host-owned LLM calls;
+- a bundled Hermes Skill for natural-language/manual invocation;
+- `by2kb init` and `by2kb agent install hermes`.
 
-Not implemented yet:
-
-- the `external_agent` enrichment executor;
-- `--transcribe-only` / `--enricher external`;
-- `by2kb enrichment claim|complete|fail`;
-- the Hermes plugin described below;
-- a Codex plugin or another agent-host adapter.
-
-MCP is not required for any of these items.
+Future host adapters, including a Codex-specific plugin, can reuse the same CLI
+protocol. MCP is optional and is not used by the Hermes implementation.
 
 ## Two deployment paths, one core pipeline
 
@@ -107,7 +103,7 @@ agent process.
 Target CLI contract:
 
 ```text
-by2kb ingest <url> --enricher external --json
+by2kb ingest <url> --enricher external_agent --json
 by2kb enrichment claim <job-id> --json
 by2kb enrichment complete <job-id> \
   --abstract-file <abstract.md> \
@@ -135,15 +131,14 @@ added without changing the job pipeline.
 Hermes is the first reference agent host. It should consume `by2kb` as an installed
 application, not learn from a checkout placed in its working directory.
 
-The standalone Hermes plugin contains:
+The Hermes plugin is packaged inside the `by2kb` wheel and installs as:
 
 ```text
-by2kb-hermes/
+~/.hermes/plugins/by2kb/
   plugin.yaml
   __init__.py
-  worker.py
   skills/
-    by2kb-enrichment/
+    video-to-knowledge/
       SKILL.md
 ```
 
@@ -152,10 +147,10 @@ existing Hermes extension surfaces:
 
 1. `pre_gateway_dispatch` deterministically recognizes a bare supported video URL
    before the normal agent turn.
-2. It retains the canonical Hermes gateway `session_key`, acknowledges receipt through
-   the active platform adapter, starts a background CLI subprocess, and returns
+2. It checks Hermes authorization, acknowledges receipt through the active platform
+   adapter, starts a background CLI subprocess, and returns
    `{"action": "skip"}` so the URL does not also enter the model.
-3. The subprocess invokes `by2kb ingest <url> --enricher external --json` using an
+3. The subprocess invokes `by2kb ingest <url> --enricher external_agent --json` using an
    argument vector with `shell=False`.
 4. Once transcription is ready, the plugin performs enrichment using one of the two
    host strategies below.
@@ -223,15 +218,16 @@ by2kb core
 
 ## Packaging and installation target
 
-The `by2kb` Python package owns the CLI and should be installed independently of any
-agent checkout. The Hermes adapter is a standalone plugin installed through the Hermes
-plugin manager or a Hermes plugin Python entry point.
+The `by2kb` Python package owns the CLI and the version-matched Hermes adapter. Users
+install the application independently of any agent checkout, then copy and enable the
+adapter with one command.
 
 Target installation experience:
 
 ```bash
 pipx install 'by2kb[asr-doubao]'
-hermes plugins install Charlesmpc/by2kb-hermes --enable
+by2kb init
+by2kb agent install hermes
 ```
 
 Until packages are published, a local source installation can use:
@@ -240,7 +236,7 @@ Until packages are published, a local source installation can use:
 pipx install '/absolute/path/to/by2kb[asr-doubao]'
 ```
 
-The first target command is not yet available by package name because `by2kb` has not
-been published to a Python package index. The second is not available until the Hermes
-plugin is implemented and published.
-
+Before the first package-index release, use the local source path in the `pipx install`
+command. `by2kb agent install hermes` is implemented now; it copies the plugin into the
+active `HERMES_HOME`, enables it through the Hermes CLI, and asks the user to restart
+the gateway.

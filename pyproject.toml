@@ -1,6 +1,6 @@
 [project]
 name = "by2kb"
-version = "0.1.0"
+version = "0.2.0"
 description = "Forward a video. Keep the knowledge. Bilibili/YouTube to knowledge base."
 readme = "README.md"
 requires-python = ">=3.12"

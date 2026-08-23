@@ -1,0 +1,7 @@
+name: by2kb
+version: "0.2.0"
+description: Transcribe Bilibili videos and enrich them with the Hermes host model.
+author: Charlesmpc
+kind: standalone
+hooks:
+  - pre_gateway_dispatch

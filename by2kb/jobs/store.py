@@ -28,6 +28,18 @@ CREATE TABLE IF NOT EXISTS artifacts (
     content_hash TEXT,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS enrichment_tasks (
+    job_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    executor TEXT NOT NULL,
+    abstract_profile TEXT NOT NULL,
+    study_profile TEXT NOT NULL,
+    provider TEXT,
+    model TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE UNIQUE INDEX IF NOT EXISTS idempotency_key
     ON jobs (platform, video_id);
 """
@@ -115,6 +127,68 @@ class JobStore:
             (job_id,),
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def upsert_enrichment_task(
+        self,
+        job_id: str,
+        *,
+        status: str,
+        executor: str,
+        abstract_profile: str,
+        study_profile: str,
+        provider: str | None = None,
+        model: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        now = utcnow_iso()
+        self._conn.execute(
+            "INSERT INTO enrichment_tasks"
+            " (job_id, status, executor, abstract_profile, study_profile, provider,"
+            " model, error_message, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(job_id) DO UPDATE SET"
+            " status = excluded.status, executor = excluded.executor,"
+            " abstract_profile = excluded.abstract_profile,"
+            " study_profile = excluded.study_profile, provider = excluded.provider,"
+            " model = excluded.model, error_message = excluded.error_message,"
+            " updated_at = excluded.updated_at",
+            (
+                job_id,
+                status,
+                executor,
+                abstract_profile,
+                study_profile,
+                provider,
+                model,
+                error_message,
+                now,
+                now,
+            ),
+        )
+        self._conn.commit()
+
+    def update_enrichment_task(
+        self,
+        job_id: str,
+        status: str,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        self._conn.execute(
+            "UPDATE enrichment_tasks SET status = ?,"
+            " provider = COALESCE(?, provider), model = COALESCE(?, model),"
+            " error_message = ?, updated_at = ? WHERE job_id = ?",
+            (status, provider, model, error_message, utcnow_iso(), job_id),
+        )
+        self._conn.commit()
+
+    def get_enrichment_task(self, job_id: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM enrichment_tasks WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def _row_to_job(row: sqlite3.Row) -> Job:

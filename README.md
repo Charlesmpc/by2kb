@@ -4,9 +4,9 @@
 
 `by2kb` turns interesting videos into durable Markdown for your own knowledge base.
 Forward a YouTube or Bilibili link to an IM bot; a background service retrieves the
-available transcript, preserves a raw version, and can use an API-accessible LLM to
-produce both a short interest-check abstract and long-form study notes in the knowledge
-base you control.
+available transcript, preserves a raw version, and can use either an agent host's
+existing model or an API-accessible LLM to produce both a short interest-check abstract
+and long-form study notes in the knowledge base you control.
 
 > **Project status: early implementation.** The Bilibili audio+ASR ingestion
 > pipeline works in local CLI mode (see [Quickstart](#quickstart-local-mode));
@@ -150,8 +150,14 @@ the evidence.
 ### LLM access and authentication
 
 Summary generation does require an LLM, but it does **not** require a browser login.
-`by2kb` calls an OpenAI-compatible API with a server-side API key and never stores that
-key in an artifact. The default endpoint preset is Volcengine Ark. To use OpenAI, set:
+There are two execution paths:
+
+- Agent users select `external_agent`. The Hermes reference plugin borrows the active
+  Hermes provider/model through its host-owned LLM API; `by2kb` never receives that
+  credential and no nested agent loop is created.
+- Standalone deployments select `api`. `by2kb` calls an OpenAI-compatible endpoint
+  with a server-side API key and never stores that key in an artifact. The default
+  endpoint preset is Volcengine Ark. To use OpenAI, set:
 
 ```dotenv
 BY2KB_LLM_API_KEY=<your API key>
@@ -338,31 +344,42 @@ Markdown plus the original transcript JSON is the portable source of truth.
 Requires Python 3.12+ and `ffmpeg`/`ffprobe` on PATH (long-audio chunking and
 duration detection).
 
-```bash
-python -m pip install -e ".[asr-doubao]"
-cp .env.example .env        # fill in TOS + Doubao AUC credentials (and optionally LLM)
-python -m by2kb.cli ingest "https://www.bilibili.com/video/<bvid>/"
-```
-
-The package already exposes a `by2kb` console entry point and builds as a wheel. A
-source checkout can therefore be installed into an isolated environment when `pipx`
-is available:
+The package exposes a `by2kb` console entry point and builds as a wheel. Until the
+first PyPI publication, install a checkout into an isolated environment:
 
 ```bash
 pipx install '/absolute/path/to/by2kb[asr-doubao]'
-by2kb version
+by2kb init
 ```
 
-`pipx install 'by2kb[asr-doubao]'` by package name is a target installation command,
-not a currently published distribution: `by2kb` has not yet been released to a Python
-package index. The `[asr-doubao]` extra is required for the current Bilibili pipeline.
-The Hermes plugin and external-agent CLI contract are also still design work; see
-[`docs/agent-integration.md`](docs/agent-integration.md#status).
+The guided initializer configures the local knowledge-base folder, private TOS audio
+staging, Doubao ASR, and either agent-hosted or API enrichment. The `[asr-doubao]`
+extra is required for the current Bilibili pipeline. After a PyPI release the first
+command becomes `pipx install 'by2kb[asr-doubao]'`.
+
+For an agent-first Hermes installation:
+
+```bash
+by2kb agent install hermes
+hermes gateway restart
+```
+
+The install command copies and enables the bundled Hermes plugin. An authorized user
+can then send a Bilibili or `b23.tv` URL to their Telegram Hermes bot. The plugin
+acknowledges immediately, runs transcription in the background, makes two bounded calls
+through the Hermes host model, and replies with the transcript, abstract, and study-note
+paths. It does not require MCP or a `BY2KB_LLM_API_KEY`.
+
+Standalone users choose `api` during `by2kb init`, then run:
+
+```bash
+by2kb ingest "https://www.bilibili.com/video/<bvid>/"
+```
 
 `.env` is loaded from `$BY2KB_ENV_FILE`, `<BY2KB_HOME>/.env` (default
 `~/.by2kb/.env`), or `./.env`. Artifacts land in
 `<library>/bilibili/<bvid>/{source.json,transcript.json,raw.md,abstract.md,updated.md}`;
-the abstract and study notes are produced only when LLM credentials are configured.
+the abstract and study notes are produced by the configured API or external agent.
 Exit codes:
 0 completed, 1 terminal failure, 2 retryable, 3 needs auth, 4 duplicate.
 
@@ -370,7 +387,7 @@ If a video was transcribed before LLM credentials were configured, generate or r
 only its two summaries without downloading and transcribing the media again:
 
 ```bash
-python -m by2kb.cli ingest "https://www.bilibili.com/video/<bvid>/" --re-enrich
+by2kb ingest "https://www.bilibili.com/video/<bvid>/" --re-enrich
 ```
 
 Bilibili ingestion goes straight to audio+ASR (native subtitles are not
@@ -498,6 +515,8 @@ machine.
       `docs/tech-design-m1.md` §3.7).
 - [x] Raw, short-abstract, and long-form study-note generation.
 - [x] Packaged default abstract and deep-study skills.
+- [x] Durable external-agent enrichment protocol and Hermes reference plugin.
+- [x] Guided `by2kb init` for TOS, ASR, enrichment mode, and filesystem output.
 - [ ] IM completion/failure notifications.
 
 ### Milestone 2 — Personalization and more destinations

@@ -8,6 +8,12 @@ from pathlib import Path
 import httpx
 
 from by2kb.config import Config
+from by2kb.enrichment import (
+    ApiEnrichmentExecutor,
+    DisabledEnrichmentExecutor,
+    ExternalAgentEnrichmentExecutor,
+    create_enrichment_request,
+)
 from by2kb.errors import (
     By2kbError,
     ConfigError,
@@ -15,7 +21,6 @@ from by2kb.errors import (
     UnsupportedUrl,
     category_of,
 )
-from by2kb.filenames import markdown_artifact_name
 from by2kb.jobs.model import STATUS_FOR_ERROR, Job, JobStatus
 from by2kb.jobs.store import JobStore
 from by2kb.normalize import NormalizedTranscript, from_asr_result
@@ -25,10 +30,8 @@ from by2kb.providers.asr_doubao_auc import DoubaoAucAsrProvider, DoubaoAucConfig
 from by2kb.providers.base import FetchOptions
 from by2kb.providers.bilibili_wbi import WbiKeyCache
 from by2kb.sinks.filesystem import FilesystemSink
-from by2kb.skills.model import find_skill
-from by2kb.skills.runner import LlmClient, OpenAiCompatibleClient, run_skill
+from by2kb.skills.runner import LlmClient, OpenAiCompatibleClient
 from by2kb.writers.raw import content_hash, write_artifacts
-from by2kb.writers.updated import render_updated_md, write_updated_md
 
 EXIT_COMPLETED = 0
 EXIT_DUPLICATE = 4
@@ -36,8 +39,6 @@ EXIT_DUPLICATE = 4
 KIND_SOURCE_JSON = "source_json"
 KIND_TRANSCRIPT_JSON = "transcript_json"
 KIND_RAW_MD = "raw_md"
-KIND_ABSTRACT_MD = "abstract_md"
-KIND_UPDATED_MD = "updated_md"
 
 
 @dataclass
@@ -65,42 +66,16 @@ async def build_summary_artifacts(
     staging: Path,
     llm: LlmClient,
 ) -> dict[str, Path]:
-    """Create the decision abstract and deep-study artifact independently."""
-    skill_dirs = config.skills_dirs or [config.home / "skills"]
-    raw_md = raw_path.read_text(encoding="utf-8")
-    study_skill = config.study_skill or (
-        config.skills[0] if config.skills else "default-video-digest"
+    """Compatibility wrapper for callers using the original API helper."""
+    request = create_enrichment_request(
+        config,
+        job_id="standalone",
+        normalized=normalized,
+        raw_path=raw_path,
+        staging=staging,
     )
-    summaries = (
-        (KIND_ABSTRACT_MD, "abstract", "short_abstract", config.abstract_skill),
-        (KIND_UPDATED_MD, "updated", "study_notes", study_skill),
-    )
-    generated: dict[str, Path] = {}
-    for artifact_kind, filename_kind, artifact_type, skill_name in summaries:
-        skill = find_skill(skill_name, skill_dirs)
-        if skill is None:
-            raise ConfigError(f"summary skill not found: {skill_name}")
-        body = await run_skill(skill, normalized, raw_md, llm)
-        output_name = markdown_artifact_name(
-            normalized.source.title,
-            normalized.source.video_id,
-            filename_kind,
-        )
-        generated[artifact_kind] = write_updated_md(
-            staging,
-            render_updated_md(
-                normalized,
-                body=body,
-                skill_name=skill.name,
-                skill_version=skill.version,
-                model=llm.model,
-                provider=llm.provider,
-                artifact_type=artifact_type,
-                raw_ref=raw_path.name,
-            ),
-            filename=output_name,
-        )
-    return generated
+    submission = await ApiEnrichmentExecutor(llm).submit(request)
+    return submission.artifacts
 
 
 async def resolve_url(url: str, client: httpx.AsyncClient):
@@ -135,17 +110,113 @@ def _failure(store: JobStore, job: Job | None, error: By2kbError) -> IngestOutco
     )
 
 
+def _stored_artifacts(store: JobStore, job_id: str) -> dict[str, str]:
+    return {item["kind"]: item["path"] for item in store.artifacts(job_id)}
+
+
+async def _run_enrichment(
+    *,
+    store: JobStore,
+    job: Job,
+    config: Config,
+    normalized: NormalizedTranscript,
+    raw_path: Path,
+    staging: Path,
+    client: httpx.AsyncClient,
+    executor_name: str,
+) -> IngestOutcome:
+    request = create_enrichment_request(
+        config,
+        job_id=job.id,
+        normalized=normalized,
+        raw_path=raw_path,
+        staging=staging,
+    )
+    abstract_profile = request.abstract_skill.name
+    study_profile = request.study_skill.name
+
+    if executor_name == "disabled":
+        executor = DisabledEnrichmentExecutor()
+    elif executor_name == "external_agent":
+        executor = ExternalAgentEnrichmentExecutor()
+    elif executor_name == "api":
+        if not config.llm.usable:
+            raise ConfigError(
+                "api enrichment requires BY2KB_LLM_API_KEY and BY2KB_LLM_MODEL"
+            )
+        executor = ApiEnrichmentExecutor(OpenAiCompatibleClient(config.llm, client))
+    else:
+        raise ConfigError(f"unknown enrichment executor: {executor_name}")
+
+    if executor_name != "disabled":
+        store.upsert_enrichment_task(
+            job.id,
+            status="pending" if executor_name == "external_agent" else "enriching",
+            executor=executor_name,
+            abstract_profile=abstract_profile,
+            study_profile=study_profile,
+            provider=("openai_compatible" if executor_name == "api" else None),
+            model=(config.llm.model if executor_name == "api" else None),
+        )
+
+    submission = await executor.submit(request)
+    if submission.deferred:
+        store.update_status(job.id, JobStatus.ENRICHMENT_PENDING)
+        artifacts = _stored_artifacts(store, job.id)
+        return IngestOutcome(
+            exit_code=EXIT_COMPLETED,
+            job_id=job.id,
+            status=JobStatus.ENRICHMENT_PENDING.value,
+            artifacts=artifacts,
+            message=f"transcribed; awaiting agent enrichment: {job.id}",
+        )
+
+    if submission.artifacts:
+        store.update_status(job.id, JobStatus.ENRICHING)
+        receipt = await FilesystemSink(config.library_root).publish(
+            submission.artifacts,
+            platform=job.platform,
+            video_id=job.video_id,
+        )
+        for kind, path in submission.artifacts.items():
+            store.add_artifact(job.id, kind, receipt.artifacts[kind], content_hash(path))
+        store.update_enrichment_task(
+            job.id,
+            "completed",
+            provider="openai_compatible",
+            model=config.llm.model,
+        )
+        store.update_status(job.id, JobStatus.UPDATED_PUBLISHED)
+
+    store.update_status(job.id, JobStatus.COMPLETED)
+    artifacts = _stored_artifacts(store, job.id)
+    return IngestOutcome(
+        exit_code=EXIT_COMPLETED,
+        job_id=job.id,
+        status=JobStatus.COMPLETED.value,
+        artifacts=artifacts,
+        message=f"completed: {config.library_root / job.platform / job.video_id}",
+    )
+
+
 async def ingest_url(
     url: str,
     config: Config,
     *,
     refresh: bool = False,
     re_enrich: bool = False,
+    enricher: str | None = None,
     requested_by: str | None = None,
 ) -> IngestOutcome:
     store = JobStore(config.db_path)
     job: Job | None = None
     try:
+        try:
+            executor_name = config.resolved_enrichment_executor(enricher)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
+        if config.asr_provider != "doubao_auc":
+            raise ConfigError(f"unsupported ASR provider: {config.asr_provider}")
         async with httpx.AsyncClient(
             timeout=60, follow_redirects=True, max_redirects=5
         ) as client:
@@ -163,15 +234,11 @@ async def ingest_url(
                 job = existing
             if existing is not None and not refresh:
                 if re_enrich:
-                    if not config.llm.usable:
+                    if executor_name == "disabled":
                         raise ConfigError(
-                            "--re-enrich requires BY2KB_LLM_API_KEY and "
-                            "BY2KB_LLM_MODEL"
+                            "--re-enrich requires the api or external_agent executor"
                         )
-                    stored = {
-                        item["kind"]: item["path"]
-                        for item in store.artifacts(existing.id)
-                    }
+                    stored = _stored_artifacts(store, existing.id)
                     missing = [
                         kind
                         for kind in (KIND_TRANSCRIPT_JSON, KIND_RAW_MD)
@@ -186,42 +253,33 @@ async def ingest_url(
                         Path(stored[KIND_TRANSCRIPT_JSON]).read_text(encoding="utf-8")
                     )
                     staging = config.home / "jobs" / existing.id / "artifacts"
-                    store.update_status(existing.id, JobStatus.ENRICHING)
-                    generated = await build_summary_artifacts(
-                        config,
-                        normalized,
-                        Path(stored[KIND_RAW_MD]),
-                        staging,
-                        OpenAiCompatibleClient(config.llm, client),
-                    )
-                    receipt = await FilesystemSink(config.library_root).publish(
-                        generated,
-                        platform=identity.platform,
-                        video_id=identity.video_id,
-                    )
-                    for kind, path in generated.items():
-                        store.add_artifact(
-                            existing.id,
-                            kind,
-                            receipt.artifacts[kind],
-                            content_hash(path),
-                        )
-                    store.update_status(existing.id, JobStatus.UPDATED_PUBLISHED)
-                    store.update_status(existing.id, JobStatus.COMPLETED)
-                    all_artifacts = {
-                        item["kind"]: item["path"] for item in store.artifacts(existing.id)
-                    }
-                    return IngestOutcome(
-                        exit_code=EXIT_COMPLETED,
-                        job_id=existing.id,
-                        status=JobStatus.COMPLETED.value,
-                        artifacts=all_artifacts,
-                        message=f"re-enriched: {receipt.target}",
+                    return await _run_enrichment(
+                        store=store,
+                        job=existing,
+                        config=config,
+                        normalized=normalized,
+                        raw_path=Path(stored[KIND_RAW_MD]),
+                        staging=staging,
+                        client=client,
+                        executor_name=executor_name,
                     )
                 if existing.status == JobStatus.COMPLETED:
                     raise DuplicateJob(
                         f"already ingested: {identity.platform}/{identity.video_id}",
                         job_id=existing.id,
+                    )
+                task = store.get_enrichment_task(existing.id)
+                if task and task["executor"] == "external_agent" and task["status"] in {
+                    "pending",
+                    "claimed",
+                    "failed_retryable",
+                }:
+                    return IngestOutcome(
+                        exit_code=EXIT_COMPLETED,
+                        job_id=existing.id,
+                        status=existing.status.value,
+                        artifacts=_stored_artifacts(store, existing.id),
+                        message=f"existing agent enrichment task: {existing.id}",
                     )
             if job is None:
                 job = Job(
@@ -267,37 +325,29 @@ async def ingest_url(
             artifacts = write_artifacts(
                 staging, source_payload=source_payload, normalized=normalized
             )
-            store.update_status(job.id, JobStatus.RAW_PUBLISHED)
-
-            if config.llm.usable:
-                store.update_status(job.id, JobStatus.ENRICHING)
-                llm = OpenAiCompatibleClient(config.llm, client)
-                artifacts.update(
-                    await build_summary_artifacts(
-                        config,
-                        normalized,
-                        artifacts[KIND_RAW_MD],
-                        staging,
-                        llm,
-                    )
-                )
-                store.update_status(job.id, JobStatus.UPDATED_PUBLISHED)
-
             sink = FilesystemSink(config.library_root)
-            receipt = await sink.publish(
-                artifacts, platform=identity.platform, video_id=identity.video_id
+            raw_receipt = await sink.publish(
+                artifacts,
+                platform=identity.platform,
+                video_id=identity.video_id,
             )
             for kind, path in artifacts.items():
                 store.add_artifact(
-                    job.id, kind, receipt.artifacts[kind], content_hash(path)
+                    job.id,
+                    kind,
+                    raw_receipt.artifacts[kind],
+                    content_hash(path),
                 )
-            store.update_status(job.id, JobStatus.COMPLETED)
-            return IngestOutcome(
-                exit_code=EXIT_COMPLETED,
-                job_id=job.id,
-                status=JobStatus.COMPLETED.value,
-                artifacts=receipt.artifacts,
-                message=f"completed: {receipt.target}",
+            store.update_status(job.id, JobStatus.RAW_PUBLISHED)
+            return await _run_enrichment(
+                store=store,
+                job=job,
+                config=config,
+                normalized=normalized,
+                raw_path=Path(raw_receipt.artifacts[KIND_RAW_MD]),
+                staging=staging,
+                client=client,
+                executor_name=executor_name,
             )
     except DuplicateJob as error:
         artifacts = {a["kind"]: a["path"] for a in store.artifacts(error.job_id or "")}
