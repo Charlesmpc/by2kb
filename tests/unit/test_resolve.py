@@ -29,6 +29,29 @@ async def test_short_link_expands_to_canonical_bvid(make_redirect_client):
     assert identity.canonical_url == "https://www.bilibili.com/video/BV1DoLR62Eqh/"
 
 
+async def test_short_link_does_not_fetch_redirect_target_that_returns_412():
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        if request.url.host == "b23.tv":
+            return httpx.Response(
+                302,
+                headers={
+                    "location": "https://www.bilibili.com/video/BV1E4bk6dEuH/?share=1"
+                },
+            )
+        return httpx.Response(412)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), follow_redirects=True
+    ) as client:
+        identity = await resolve_url("https://b23.tv/gnCCkgV", client)
+
+    assert identity.video_id == "BV1E4bk6dEuH"
+    assert requests == ["https://b23.tv/gnCCkgV"]
+
+
 async def test_short_link_and_canonical_dedupe_to_same_identity(
     make_redirect_client,
 ):

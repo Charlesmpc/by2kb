@@ -128,6 +128,13 @@ Provider selection per platform is an ordered chain in config, e.g. YouTube:
 recorded per provider before falling through. Bilibili has one provider in
 Milestone 1.
 
+Mobile Bilibili shares use `b23.tv` short links. Resolution reads only the
+first 3xx response with redirects disabled, requires its `Location`, and
+extracts the BVID from that target without fetching the target HTML page.
+Following the target is unnecessary for identity resolution and can turn a
+valid short link into a false retryable failure when Bilibili's page layer
+answers an unauthenticated headless request with HTTP 412.
+
 Error taxonomy (`errors.py`), mapped to job states from `architecture.md`:
 
 | Error | Meaning | Job state | Retry |
