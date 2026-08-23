@@ -5,6 +5,9 @@ from pathlib import Path
 from pydantic import BaseModel
 
 
+BUILTIN_SKILLS_DIR = Path(__file__).parent / "builtin"
+
+
 class Skill(BaseModel):
     name: str
     description: str = ""
@@ -35,7 +38,9 @@ def parse_skill_file(path: Path) -> Skill:
 
 
 def find_skill(name: str, dirs: list[Path]) -> Skill | None:
-    for directory in dirs:
+    # User directories take precedence, while packaged defaults make a fresh
+    # installation useful without copying skill files into ~/.by2kb first.
+    for directory in [*dirs, BUILTIN_SKILLS_DIR]:
         if not directory.is_dir():
             continue
         for candidate in sorted(directory.glob("*/SKILL.md")):

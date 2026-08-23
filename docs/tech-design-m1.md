@@ -50,7 +50,8 @@ configurable path in service mode). Tables for Milestone 1:
 
 - `jobs` — id, platform, video_id, status, requested_by, destination, options JSON,
   created_at, updated_at, attempt count, last error category;
-- `artifacts` — job id, kind (`source_json|transcript_json|raw_md|updated_md`),
+- `artifacts` — job id, kind
+  (`source_json|transcript_json|raw_md|abstract_md|updated_md`),
   path, content hash, created_at;
 - `idempotency` — unique index on `(platform, canonical_video_id, skills_hash,
   destination)` resolving to a job id (README idempotency rules).
@@ -87,13 +88,13 @@ by2kb/
   normalize.py            # provider payloads -> normalized transcript schema
   writers/
     raw.py                # deterministic raw.md + source/transcript JSON
-    updated.py            # updated.md with provenance frontmatter
+    updated.py            # generated Markdown with provenance frontmatter
   skills/
     model.py              # skill package parsing (SKILL.md frontmatter)
     runner.py             # applies selected skills via LLM client
     builtin/
-      transcript-cleanup/SKILL.md
-      summary/SKILL.md
+      short-abstract/SKILL.md
+      default/SKILL.md    # deep study notes
   sinks/
     base.py               # KnowledgeSink interface
     filesystem.py         # local/Obsidian vault (Milestone 1 sink)
@@ -189,8 +190,10 @@ now means local→service graduation changes no adapter code.
 ### 3.4 Artifact formats
 
 `library/<platform>/<video-id>/` contains `source.json`, `transcript.json`
-(the normalized schema from architecture.md), and two Markdown artifacts named
-`<sanitized-title>-<video-id>.raw.md` and `<sanitized-title>-<video-id>.updated.md`.
+(the normalized schema from architecture.md), and three Markdown artifacts named
+`<sanitized-title>-<video-id>.raw.md`,
+`<sanitized-title>-<video-id>.abstract.md`, and
+`<sanitized-title>-<video-id>.updated.md`.
 
 Naming contract:
 
@@ -231,27 +234,52 @@ fetched_at: 2026-08-17T12:00:00Z
 Body: timestamped segments as `[M:SS] text`, linking back to the video at segment
 granularity where the platform supports it.
 
-`updated.md` frontmatter adds: `skills: [{name, version}]`, `model`, `provider`,
-`processed_at`, `raw_ref: ./raw.md`, `confidence: high|medium|low` (native
-transcript = high; phase-2 ASR will be lower).
+Both generated artifacts add: `skills: [{name, version}]`, `model`, `provider`,
+`artifact_type: short_abstract|study_notes`, `processed_at`, `raw_ref: ./raw.md`,
+and `confidence: high|medium|low` (native transcript = high; ASR is lower).
+
+The two generated artifacts serve deliberately different reading moments:
+
+- `abstract.md` is bounded, decision-oriented, and should take less than one minute to
+  read. It answers what the video is about, what the reader will learn, and whether it
+  merits deeper attention.
+- `updated.md` is the long-form study artifact. It organizes the thesis, knowledge
+  relationships, walkthrough, claims and evidence, terminology, open questions, and
+  learning/actions. It links to timestamps when the transcript has reliable timing and
+  links back to `raw.md` as evidence.
 
 ### 3.5 Skill packages and runner
 
 A skill is a directory: `SKILL.md` (frontmatter: `name`, `description`,
 `version`, optional `model`, optional `sections`) plus optional `templates/` and
-`references/`. Milestone 1 ships two built-ins: `transcript-cleanup` and
-`summary`.
+`references/`. Milestone 1 ships two packaged defaults:
+`short-video-abstract` and `default-video-digest`. User skill directories take
+precedence over packaged skills, so either profile can be replaced without changing
+the pipeline.
 
 The runner calls models through a small `LlmClient` abstraction (owner
 decision 2026-08-17): direct OpenAI-compatible calls, with the first shipped
 implementation preset for the Volcengine Ark ecosystem (base URL + key +
-model, defaulting to the Ark endpoint and a doubao-series model). Other
-providers — including shelling out to an agent CLI, if users want their
-agent's own context/skills in the loop — are later polymorphic
-implementations behind the same interface, following the §3.6–§3.8 pattern.
-The runner receives the normalized transcript + raw markdown + skill
-instructions and returns named sections; the writer assembles `updated.md`
-and records provenance.
+model, defaulting to the Ark endpoint and a doubao-series model).
+The runner makes one call per output profile. It receives the normalized transcript +
+raw markdown + profile skill instructions and returns Markdown; the writer assembles
+`abstract.md` and `updated.md` independently and records provenance. Separate calls
+keep the short artifact genuinely bounded instead of extracting it from a long answer,
+at the cost of one additional LLM request per ingested video.
+
+LLM access is machine-to-machine API authentication, not an interactive product login.
+The key stays in `BY2KB_LLM_API_KEY`; the default Ark base URL can be replaced with
+`https://api.openai.com/v1` or another compatible endpoint. A missing key/model is a
+supported degraded mode: raw artifacts are still published and no summaries are
+attempted.
+
+Agent-hosted enrichment is polymorphic one layer above `LlmClient`. An
+`ApiEnrichmentExecutor` completes both profiles inline, while an
+`ExternalAgentExecutor` persists a pending request for a Hermes, Codex, or future
+adapter to claim and complete. `by2kb` never shells out to an agent. Co-hosted adapters
+use the CLI and filesystem; MCP is optional and reserved for a future remote transport.
+The contract, loop prevention, Hermes journey, and implementation status are specified
+in `docs/agent-integration.md`.
 
 Skills never mutate raw artifacts; the runner enforces this by construction
 (reads raw, writes only updated).
@@ -311,14 +339,14 @@ class KnowledgeSink(Protocol):
     async def publish(self, artifacts: ArtifactSet,
                       options: SinkOptions) -> SinkReceipt: ...
 
-# ArtifactSet: the four canonical files of one job (§3.4)
+# ArtifactSet: the five canonical files of one enriched job (§3.4)
 # SinkReceipt: per-artifact status + canonical link(s) for IM notifications
 ```
 
 Design rules:
 
 - **The filesystem layout is the reference layout** (§3.4):
-  `library/<platform>/<video-id>/{source.json,transcript.json,raw.md,updated.md}`.
+  `library/<platform>/<video-id>/{source.json,transcript.json,raw.md,abstract.md,updated.md}`.
   The Milestone-1 `filesystem` sink writes exactly this, which also covers
   Obsidian (a vault is a folder of Markdown) and Git-backed libraries (commit
   the folder) with no dedicated adapter.
@@ -383,7 +411,8 @@ Secrets are environment variables only; everything else lives in
 | Env var | Purpose |
 | --- | --- |
 | `BY2KB_SUPADATA_KEY` | Supadata provider (optional) |
-| `BY2KB_LLM_API_KEY` / `BY2KB_LLM_BASE_URL` / `BY2KB_LLM_MODEL` | skill runner (`LlmClient`; defaults to the Volcengine Ark preset, §3.5) |
+| `BY2KB_LLM_API_KEY` / `BY2KB_LLM_BASE_URL` / `BY2KB_LLM_MODEL` | API-key-authenticated skill runner (`LlmClient`; defaults to the Volcengine Ark preset, §3.5) |
+| `BY2KB_ABSTRACT_SKILL` / `BY2KB_STUDY_SKILL` | optional overrides for the two packaged summary profiles |
 
 Config file: default skills, default destination, language preferences, provider
 order, retry policy, `library_root`. Secrets are never logged and never written
@@ -407,9 +436,10 @@ into artifacts.
 ## 6. Out of scope for this document
 
 Service mode implementation, IM bot adapters, Lark/Notion sinks, skill registry
-UX, phase 2 media/ASR, phase 2b browser capture, and the hermes plugin itself
-(separate repo, per hermes policy) — all have their contracts pinned above where
-they touch Milestone 1, and their design docs come with their milestones.
+UX, phase 2 media/ASR, phase 2b browser capture, and the Hermes plugin itself
+(standalone adapter, per Hermes policy) — all have their contracts pinned above where
+they touch Milestone 1. The agent adapter contract is recorded in
+`docs/agent-integration.md`.
 
 ## 7. Design decisions (all closed)
 
@@ -417,6 +447,8 @@ they touch Milestone 1, and their design docs come with their milestones.
 2. **Closed (2026-08-17): skill-runner LLM** — direct OpenAI-compatible calls
    behind an `LlmClient` abstraction; first implementation is the Volcengine
    Ark preset, other providers later polymorphic implementations — §3.5.
+   Agent hosts are executors above this client rather than `LlmClient`
+   implementations; local integrations use CLI + files and do not require MCP.
 3. **Closed (2026-08-17): `--re-enrich` confirmed** — a duplicate with
    different skills re-runs enrichment only (no refetch); pure duplicates stay
    idempotent (exit code 4), `--refresh` forces a full refetch — §3.2.

@@ -99,6 +99,9 @@ class JobStore:
         self, job_id: str, kind: str, path: str, content_hash: str | None = None
     ) -> None:
         self._conn.execute(
+            "DELETE FROM artifacts WHERE job_id = ? AND kind = ?", (job_id, kind)
+        )
+        self._conn.execute(
             "INSERT INTO artifacts (job_id, kind, path, content_hash, created_at)"
             " VALUES (?, ?, ?, ?, ?)",
             (job_id, kind, path, content_hash, utcnow_iso()),

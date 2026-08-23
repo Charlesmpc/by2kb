@@ -54,8 +54,18 @@ class OpenAiCompatibleClient:
             raise TransientProviderError(
                 f"LLM request failed: HTTP {response.status_code}", provider="llm"
             )
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
+        try:
+            content = response.json()["choices"][0]["message"]["content"]
+        except (ValueError, KeyError, IndexError, TypeError) as exc:
+            raise TransientProviderError(
+                "LLM request failed: malformed chat-completions response",
+                provider="llm",
+            ) from exc
+        if not isinstance(content, str) or not content.strip():
+            raise TransientProviderError(
+                "LLM request failed: empty completion", provider="llm"
+            )
+        return content
 
 
 def build_prompts(

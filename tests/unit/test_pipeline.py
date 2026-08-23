@@ -153,4 +153,9 @@ def test_job_store_roundtrip_and_idempotent_lookup(tmp_path):
     store.add_artifact("abc123", "raw_md", "/lib/raw.md", "hash123")
     artifacts = store.artifacts("abc123")
     assert artifacts[0]["kind"] == "raw_md"
+
+    store.add_artifact("abc123", "raw_md", "/lib/new-raw.md", "hash456")
+    artifacts = store.artifacts("abc123")
+    assert len(artifacts) == 1
+    assert artifacts[0]["path"] == "/lib/new-raw.md"
     store.close()

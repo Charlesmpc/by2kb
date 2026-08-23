@@ -71,10 +71,12 @@ def test_basename_keeps_video_identity():
 
 def test_markdown_artifact_names_are_distinct():
     raw = markdown_artifact_name("标题", "BV1xx411c7mD", "raw")
+    abstract = markdown_artifact_name("标题", "BV1xx411c7mD", "abstract")
     updated = markdown_artifact_name("标题", "BV1xx411c7mD", "updated")
     assert raw == "标题-BV1xx411c7mD.raw.md"
+    assert abstract == "标题-BV1xx411c7mD.abstract.md"
     assert updated == "标题-BV1xx411c7mD.updated.md"
-    assert raw != updated
+    assert len({raw, abstract, updated}) == 3
 
 
 def test_markdown_artifact_name_rejects_unknown_kind():

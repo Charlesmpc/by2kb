@@ -31,6 +31,6 @@ def artifact_basename(title: str, video_id: str) -> str:
 
 
 def markdown_artifact_name(title: str, video_id: str, kind: str) -> str:
-    if kind not in ("raw", "updated"):
+    if kind not in ("raw", "abstract", "updated"):
         raise ValueError(f"unknown markdown artifact kind: {kind}")
     return f"{artifact_basename(title, video_id)}.{kind}.md"

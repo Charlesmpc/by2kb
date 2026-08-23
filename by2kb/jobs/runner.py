@@ -3,12 +3,14 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 
 from by2kb.config import Config
 from by2kb.errors import (
     By2kbError,
+    ConfigError,
     DuplicateJob,
     UnsupportedUrl,
     category_of,
@@ -16,7 +18,7 @@ from by2kb.errors import (
 from by2kb.filenames import markdown_artifact_name
 from by2kb.jobs.model import STATUS_FOR_ERROR, Job, JobStatus
 from by2kb.jobs.store import JobStore
-from by2kb.normalize import from_asr_result
+from by2kb.normalize import NormalizedTranscript, from_asr_result
 from by2kb.providers import bilibili
 from by2kb.providers.asr import AsrOptions
 from by2kb.providers.asr_doubao_auc import DoubaoAucAsrProvider, DoubaoAucConfig
@@ -24,7 +26,7 @@ from by2kb.providers.base import FetchOptions
 from by2kb.providers.bilibili_wbi import WbiKeyCache
 from by2kb.sinks.filesystem import FilesystemSink
 from by2kb.skills.model import find_skill
-from by2kb.skills.runner import OpenAiCompatibleClient, run_skill
+from by2kb.skills.runner import LlmClient, OpenAiCompatibleClient, run_skill
 from by2kb.writers.raw import content_hash, write_artifacts
 from by2kb.writers.updated import render_updated_md, write_updated_md
 
@@ -34,6 +36,7 @@ EXIT_DUPLICATE = 4
 KIND_SOURCE_JSON = "source_json"
 KIND_TRANSCRIPT_JSON = "transcript_json"
 KIND_RAW_MD = "raw_md"
+KIND_ABSTRACT_MD = "abstract_md"
 KIND_UPDATED_MD = "updated_md"
 
 
@@ -53,6 +56,51 @@ class IngestOutcome:
             "artifacts": self.artifacts,
             "message": self.message,
         }
+
+
+async def build_summary_artifacts(
+    config: Config,
+    normalized: NormalizedTranscript,
+    raw_path: Path,
+    staging: Path,
+    llm: LlmClient,
+) -> dict[str, Path]:
+    """Create the decision abstract and deep-study artifact independently."""
+    skill_dirs = config.skills_dirs or [config.home / "skills"]
+    raw_md = raw_path.read_text(encoding="utf-8")
+    study_skill = config.study_skill or (
+        config.skills[0] if config.skills else "default-video-digest"
+    )
+    summaries = (
+        (KIND_ABSTRACT_MD, "abstract", "short_abstract", config.abstract_skill),
+        (KIND_UPDATED_MD, "updated", "study_notes", study_skill),
+    )
+    generated: dict[str, Path] = {}
+    for artifact_kind, filename_kind, artifact_type, skill_name in summaries:
+        skill = find_skill(skill_name, skill_dirs)
+        if skill is None:
+            raise ConfigError(f"summary skill not found: {skill_name}")
+        body = await run_skill(skill, normalized, raw_md, llm)
+        output_name = markdown_artifact_name(
+            normalized.source.title,
+            normalized.source.video_id,
+            filename_kind,
+        )
+        generated[artifact_kind] = write_updated_md(
+            staging,
+            render_updated_md(
+                normalized,
+                body=body,
+                skill_name=skill.name,
+                skill_version=skill.version,
+                model=llm.model,
+                provider=llm.provider,
+                artifact_type=artifact_type,
+                raw_ref=raw_path.name,
+            ),
+            filename=output_name,
+        )
+    return generated
 
 
 async def resolve_url(url: str, client: httpx.AsyncClient):
@@ -92,6 +140,7 @@ async def ingest_url(
     config: Config,
     *,
     refresh: bool = False,
+    re_enrich: bool = False,
     requested_by: str | None = None,
 ) -> IngestOutcome:
     store = JobStore(config.db_path)
@@ -110,13 +159,70 @@ async def ingest_url(
                 )
 
             existing = store.find_existing(identity.platform, identity.video_id)
+            if existing is not None:
+                job = existing
             if existing is not None and not refresh:
+                if re_enrich:
+                    if not config.llm.usable:
+                        raise ConfigError(
+                            "--re-enrich requires BY2KB_LLM_API_KEY and "
+                            "BY2KB_LLM_MODEL"
+                        )
+                    stored = {
+                        item["kind"]: item["path"]
+                        for item in store.artifacts(existing.id)
+                    }
+                    missing = [
+                        kind
+                        for kind in (KIND_TRANSCRIPT_JSON, KIND_RAW_MD)
+                        if kind not in stored or not Path(stored[kind]).is_file()
+                    ]
+                    if missing:
+                        raise ConfigError(
+                            "cannot re-enrich; missing stored artifacts: "
+                            + ", ".join(missing)
+                        )
+                    normalized = NormalizedTranscript.model_validate_json(
+                        Path(stored[KIND_TRANSCRIPT_JSON]).read_text(encoding="utf-8")
+                    )
+                    staging = config.home / "jobs" / existing.id / "artifacts"
+                    store.update_status(existing.id, JobStatus.ENRICHING)
+                    generated = await build_summary_artifacts(
+                        config,
+                        normalized,
+                        Path(stored[KIND_RAW_MD]),
+                        staging,
+                        OpenAiCompatibleClient(config.llm, client),
+                    )
+                    receipt = await FilesystemSink(config.library_root).publish(
+                        generated,
+                        platform=identity.platform,
+                        video_id=identity.video_id,
+                    )
+                    for kind, path in generated.items():
+                        store.add_artifact(
+                            existing.id,
+                            kind,
+                            receipt.artifacts[kind],
+                            content_hash(path),
+                        )
+                    store.update_status(existing.id, JobStatus.UPDATED_PUBLISHED)
+                    store.update_status(existing.id, JobStatus.COMPLETED)
+                    all_artifacts = {
+                        item["kind"]: item["path"] for item in store.artifacts(existing.id)
+                    }
+                    return IngestOutcome(
+                        exit_code=EXIT_COMPLETED,
+                        job_id=existing.id,
+                        status=JobStatus.COMPLETED.value,
+                        artifacts=all_artifacts,
+                        message=f"re-enriched: {receipt.target}",
+                    )
                 if existing.status == JobStatus.COMPLETED:
                     raise DuplicateJob(
                         f"already ingested: {identity.platform}/{identity.video_id}",
                         job_id=existing.id,
                     )
-                job = existing
             if job is None:
                 job = Job(
                     id=uuid.uuid4().hex,
@@ -165,34 +271,17 @@ async def ingest_url(
 
             if config.llm.usable:
                 store.update_status(job.id, JobStatus.ENRICHING)
-                skill_name = config.skills[0] if config.skills else "default-video-digest"
-                skill_dirs = config.skills_dirs or [config.home / "skills"]
-                skill = find_skill(skill_name, skill_dirs)
-                if skill is not None:
-                    llm = OpenAiCompatibleClient(config.llm, client)
-                    body = await run_skill(
-                        skill,
+                llm = OpenAiCompatibleClient(config.llm, client)
+                artifacts.update(
+                    await build_summary_artifacts(
+                        config,
                         normalized,
-                        artifacts[KIND_RAW_MD].read_text(encoding="utf-8"),
+                        artifacts[KIND_RAW_MD],
+                        staging,
                         llm,
                     )
-                    updated_name = markdown_artifact_name(
-                        info.title, identity.video_id, "updated"
-                    )
-                    artifacts[KIND_UPDATED_MD] = write_updated_md(
-                        staging,
-                        render_updated_md(
-                            normalized,
-                            body=body,
-                            skill_name=skill.name,
-                            skill_version=skill.version,
-                            model=llm.model,
-                            provider=llm.provider,
-                            raw_ref=artifacts[KIND_RAW_MD].name,
-                        ),
-                        filename=updated_name,
-                    )
-                    store.update_status(job.id, JobStatus.UPDATED_PUBLISHED)
+                )
+                store.update_status(job.id, JobStatus.UPDATED_PUBLISHED)
 
             sink = FilesystemSink(config.library_root)
             receipt = await sink.publish(

@@ -5,8 +5,16 @@ from pathlib import Path
 
 from by2kb.sinks.base import SinkReceipt
 
-_MARKDOWN_KIND = {"raw_md": ".raw.md", "updated_md": ".updated.md"}
-_LEGACY_NAMES = {"raw_md": "raw.md", "updated_md": "updated.md"}
+_MARKDOWN_KIND = {
+    "raw_md": ".raw.md",
+    "abstract_md": ".abstract.md",
+    "updated_md": ".updated.md",
+}
+_LEGACY_NAMES = {
+    "raw_md": "raw.md",
+    "abstract_md": "abstract.md",
+    "updated_md": "updated.md",
+}
 
 
 class FilesystemSink:

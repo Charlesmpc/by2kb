@@ -16,11 +16,12 @@ IM Adapter ──► Capture API ──► Queue ──► Transcript Worker
                                                  │
 Transcript Worker ──► Normalizer ──► Raw Writer ─┼─► Skill Runner
                                                  │       │
-                                                 │       ▼
-                                                 └─► Updated Writer
-                                                          │
-                                                          ▼
-                                                  Knowledge Sink
+                                                 │       ├─► Short Abstract Writer
+                                                 │       └─► Study Notes Writer
+                                                 │                    │
+                                                 └────────────────────┤
+                                                                      ▼
+                                                              Knowledge Sink
                                                           │
                                                           ▼
                                                    IM Notification
@@ -38,7 +39,8 @@ Transcript Worker ──► Normalizer ──► Raw Writer ─┼─► Skill R
   `browser_capture + asr`.
 - **Normalizer** converts provider responses into one timestamped transcript schema.
 - **Raw writer** renders deterministic Markdown and preserves provider JSON.
-- **Skill runner** produces a new updated artifact; it never changes raw data.
+- **Skill runner** produces a short abstract and long-form study notes in independent
+  LLM calls; it never changes raw data.
 - **Knowledge sinks** publish artifacts and return durable destination references.
 - **Notifier** reports queue, completion, partial completion, and actionable failures.
 
@@ -66,6 +68,10 @@ message hook) sit outside this service entirely — they are the deterministic t
 that turns a bare video URL in the agent's IM channel into a submitted job, and they
 deliver results back through the agent's own channel, so `by2kb` needs no bot
 identity of its own in agent-hosted deployments.
+
+Agent-hosted summary execution uses the transport-neutral external enrichment contract
+in `docs/agent-integration.md`. Local Hermes/Codex adapters call the CLI and exchange
+files; MCP is optional, not a prerequisite.
 
 ## Native transcript retrieval (phase 1 reference implementations)
 
@@ -171,9 +177,11 @@ A skill receives:
 - user language and destination preferences;
 - optional supporting files from the skill package.
 
-It returns one or more named sections and provenance metadata. The system records the
-skill identifier, content hash/version, model/provider, execution time, and warnings in
-the updated document frontmatter.
+It returns Markdown sections and provenance metadata. Two packaged profiles serve
+different reading moments: a bounded, decision-oriented abstract and detailed study
+notes. User directories can override either profile. The system records the skill
+identifier/version, artifact type, model/provider, processing time, and warnings in
+each generated document's frontmatter.
 
 ## Idempotency
 

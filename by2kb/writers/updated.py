@@ -15,6 +15,7 @@ def render_updated_md(
     skill_version: str,
     model: str,
     provider: str,
+    artifact_type: str = "study_notes",
     raw_ref: str = "raw.md",
 ) -> str:
     source = normalized.source
@@ -28,6 +29,7 @@ def render_updated_md(
             "skills": f"{skill_name}@{skill_version}",
             "model": model,
             "provider": provider,
+            "artifact_type": artifact_type,
             "processed_at": utcnow_iso(),
             "raw_ref": f"./{raw_ref}",
             "confidence": "high" if normalized.transcript.kind != "asr" else "medium",

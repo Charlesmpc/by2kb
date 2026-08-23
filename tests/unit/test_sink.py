@@ -70,3 +70,26 @@ async def test_publish_retires_updated_kind_independently(tmp_path, staging):
     assert not old_updated.exists()
     assert kept_raw.exists()
     assert (target_dir / "新标题-BV1xx411c7mD.updated.md").exists()
+
+
+async def test_publish_retires_abstract_kind_independently(tmp_path, staging):
+    target_dir = tmp_path / "library" / "bilibili" / "BV1xx411c7mD"
+    target_dir.mkdir(parents=True)
+    old_abstract = target_dir / "旧标题-BV1xx411c7mD.abstract.md"
+    old_abstract.write_text("old", encoding="utf-8")
+    kept_updated = target_dir / "标题-BV1xx411c7mD.updated.md"
+    kept_updated.write_text("keep", encoding="utf-8")
+
+    new_abstract = staging / "新标题-BV1xx411c7mD.abstract.md"
+    new_abstract.write_text("new", encoding="utf-8")
+
+    sink = FilesystemSink(tmp_path / "library")
+    await sink.publish(
+        {"abstract_md": new_abstract},
+        platform="bilibili",
+        video_id="BV1xx411c7mD",
+    )
+
+    assert not old_abstract.exists()
+    assert kept_updated.exists()
+    assert (target_dir / "新标题-BV1xx411c7mD.abstract.md").exists()

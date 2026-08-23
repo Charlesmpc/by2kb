@@ -28,11 +28,20 @@ def _configure_stdio() -> None:
 def ingest(
     url: str = typer.Argument(..., help="Video URL (Bilibili for now)"),
     refresh: bool = typer.Option(False, "--refresh", help="Bypass idempotent reuse"),
+    re_enrich: bool = typer.Option(
+        False,
+        "--re-enrich",
+        help="Regenerate summaries from stored transcript without refetching media",
+    ),
     json_out: bool = typer.Option(False, "--json", help="Machine-readable result"),
 ) -> None:
     _configure_stdio()
     config = load_config()
-    outcome = asyncio.run(ingest_url(url, config, refresh=refresh))
+    if refresh and re_enrich:
+        raise typer.BadParameter("--refresh and --re-enrich cannot be used together")
+    outcome = asyncio.run(
+        ingest_url(url, config, refresh=refresh, re_enrich=re_enrich)
+    )
     if json_out:
         typer.echo(json.dumps(outcome.to_dict(), ensure_ascii=False))
     else:

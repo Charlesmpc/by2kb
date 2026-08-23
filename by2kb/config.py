@@ -26,6 +26,8 @@ class Config:
     library_root: Path
     db_path: Path
     skills: list[str] = field(default_factory=lambda: ["default-video-digest"])
+    abstract_skill: str = "short-video-abstract"
+    study_skill: str | None = None
     skills_dirs: list[Path] = field(default_factory=list)
     destination: str = "filesystem:library"
     preferred_languages: list[str] = field(default_factory=lambda: ["zh-CN", "zh", "en"])
@@ -86,6 +88,13 @@ def load_config(home: Path | None = None) -> Config:
         library_root=library_root,
         db_path=Path(str(pick("db_path", str(base / "by2kb.db")))).expanduser(),
         skills=list(data.get("skills", ["default-video-digest"])),
+        abstract_skill=str(pick("abstract_skill", "short-video-abstract")),
+        study_skill=str(
+            pick(
+                "study_skill",
+                (data.get("skills") or ["default-video-digest"])[0],
+            )
+        ),
         skills_dirs=skills_dirs,
         destination=str(pick("destination", "filesystem:library")),
         preferred_languages=list(data.get("preferred_languages", ["zh-CN", "zh", "en"])),

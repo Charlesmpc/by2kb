@@ -4,8 +4,9 @@
 
 `by2kb` turns interesting videos into durable Markdown for your own knowledge base.
 Forward a YouTube or Bilibili link to an IM bot; a background service retrieves the
-available transcript, preserves a raw version, optionally processes it with your
-personal skills, and delivers both versions to the knowledge base you control.
+available transcript, preserves a raw version, and can use an API-accessible LLM to
+produce both a short interest-check abstract and long-form study notes in the knowledge
+base you control.
 
 > **Project status: early implementation.** The Bilibili audio+ASR ingestion
 > pipeline works in local CLI mode (see [Quickstart](#quickstart-local-mode));
@@ -72,8 +73,8 @@ YouTube / Bilibili mobile app
            ├─ fetch native transcript
            ├─ normalize timestamps
            ├─ save raw Markdown + source JSON
-           ├─ run selected personal skills
-           └─ save updated Markdown
+           ├─ create a short abstract
+           └─ create long-form study notes
            │
            ▼
  Obsidian / filesystem / Lark Wiki / Notion / custom KB
@@ -86,15 +87,17 @@ From the user's point of view:
 1. Find an interesting video.
 2. Tap **Share** and send it to the configured IM bot.
 3. Receive an immediate acknowledgement and job status.
-4. Receive two knowledge artifacts when processing finishes:
+4. Receive three knowledge artifacts when processing finishes:
    - **Raw** — minimally normalized transcript with source timestamps.
-   - **Updated** — the transcript processed by the selected skills, such as cleanup,
-     chapters, summary, key arguments, tags, or domain-specific analysis.
+   - **Abstract** — a one-minute interest check: what the video argues, what the reader
+     will learn, and whether it is worth going deeper.
+   - **Updated / study notes** — a long, structured learning guide with a knowledge
+     map, guided walkthrough, claims and evidence, concepts, questions, and actions.
 
 ## Output model
 
 Every accepted video gets a stable content directory. JSON artifacts use fixed
-names; Markdown artifacts are named `<Title>-<video-id>.{raw,updated}.md` so
+names; Markdown artifacts are named `<Title>-<video-id>.{raw,abstract,updated}.md` so
 ordinary file search identifies the video (naming contract:
 `docs/tech-design-m1.md` §3.4):
 
@@ -104,11 +107,13 @@ library/
     source.json
     transcript.json
     <Title>-<video-id>.raw.md
+    <Title>-<video-id>.abstract.md
     <Title>-<video-id>.updated.md
   bilibili/<bvid>/
     source.json
     transcript.json
     <Title>-<bvid>.raw.md
+    <Title>-<bvid>.abstract.md
     <Title>-<bvid>.updated.md
 ```
 
@@ -122,17 +127,44 @@ The raw document should be deterministic and reproducible. It contains:
 - timestamped transcript segments linking back to the original video;
 - no invented facts or silent rewriting.
 
-### `updated.md`
+### `abstract.md`
+
+The abstract is deliberately short and decision-oriented. It contains a one-sentence
+summary, two to four concrete learning outcomes, and a recommendation describing who
+will benefit from reading the study notes or watching the source.
+
+### `updated.md` (deep study notes)
 
 The updated document is generated from `raw.md` and records:
 
 - skills and versions used;
 - model/provider metadata where applicable;
-- generated summary, chapters, key points, tags, and optional commentary;
+- core thesis, knowledge map, guided walkthrough, claims and evidence, concepts,
+  questions to verify, and a study/action list;
 - links back to the raw artifact and original video;
 - processing timestamp, so it can be regenerated when skills improve.
 
-Keeping both files prevents an AI rewrite from replacing the evidence.
+Keeping generated files separate from `raw.md` prevents an AI rewrite from replacing
+the evidence.
+
+### LLM access and authentication
+
+Summary generation does require an LLM, but it does **not** require a browser login.
+`by2kb` calls an OpenAI-compatible API with a server-side API key and never stores that
+key in an artifact. The default endpoint preset is Volcengine Ark. To use OpenAI, set:
+
+```dotenv
+BY2KB_LLM_API_KEY=<your API key>
+BY2KB_LLM_MODEL=<an API model available to your project>
+BY2KB_LLM_BASE_URL=https://api.openai.com/v1
+```
+
+OpenAI documents API-key authentication in its
+[API reference](https://developers.openai.com/api/reference/overview) and its current
+text-generation APIs in the
+[text generation guide](https://developers.openai.com/api/docs/guides/text).
+`by2kb` does not reuse a ChatGPT browser session. Other providers can be used when
+they expose the compatible chat-completions endpoint.
 
 ## Personalized skills
 
@@ -312,11 +344,34 @@ cp .env.example .env        # fill in TOS + Doubao AUC credentials (and optional
 python -m by2kb.cli ingest "https://www.bilibili.com/video/<bvid>/"
 ```
 
+The package already exposes a `by2kb` console entry point and builds as a wheel. A
+source checkout can therefore be installed into an isolated environment when `pipx`
+is available:
+
+```bash
+pipx install '/absolute/path/to/by2kb[asr-doubao]'
+by2kb version
+```
+
+`pipx install 'by2kb[asr-doubao]'` by package name is a target installation command,
+not a currently published distribution: `by2kb` has not yet been released to a Python
+package index. The `[asr-doubao]` extra is required for the current Bilibili pipeline.
+The Hermes plugin and external-agent CLI contract are also still design work; see
+[`docs/agent-integration.md`](docs/agent-integration.md#status).
+
 `.env` is loaded from `$BY2KB_ENV_FILE`, `<BY2KB_HOME>/.env` (default
 `~/.by2kb/.env`), or `./.env`. Artifacts land in
-`<library>/bilibili/<bvid>/{source.json,transcript.json,raw.md,updated.md}`;
-`updated.md` is produced only when LLM credentials are configured. Exit codes:
+`<library>/bilibili/<bvid>/{source.json,transcript.json,raw.md,abstract.md,updated.md}`;
+the abstract and study notes are produced only when LLM credentials are configured.
+Exit codes:
 0 completed, 1 terminal failure, 2 retryable, 3 needs auth, 4 duplicate.
+
+If a video was transcribed before LLM credentials were configured, generate or refresh
+only its two summaries without downloading and transcribing the media again:
+
+```bash
+python -m by2kb.cli ingest "https://www.bilibili.com/video/<bvid>/" --re-enrich
+```
 
 Bilibili ingestion goes straight to audio+ASR (native subtitles are not
 pursued — `docs/tech-design-m1.md` §7.5); ASR setup details live in
@@ -361,18 +416,24 @@ For agent-first users, the adapter of record is a **plugin** on the agent side, 
   URL deterministically — before auth and before the LLM — spawns `by2kb ingest` in a
   background thread, acknowledges through the agent's own IM adapter, and returns
   `skip` so the message never reaches the model (zero tokens for the trigger path);
-- a companion skill (and later an MCP server) covers the phrased case — "save this
-  video to my KB" — where the model invokes the CLI through its terminal tool.
+- after transcription, the plugin can call Hermes' host-owned LLM twice using the
+  packaged enrichment profiles, or optionally inject a full Agent turn when personal
+  memory and other tools are needed;
+- a companion skill covers the phrased case — "save this video to my KB" — where the
+  model invokes the CLI through its terminal tool. MCP is not required when both
+  programs share a host and filesystem.
 
-Other agents (Claude Code hooks, Codex MCP, ...) follow the same shape: deterministic
-trigger where the agent offers one, skill/MCP otherwise, CLI always as the engine.
+Other agents follow the same shape: deterministic trigger where the host offers one,
+and a skill calling the CLI otherwise. The agreed executor boundary, loop prevention,
+Hermes user journey, target CLI, and implementation status are specified in
+[`docs/agent-integration.md`](docs/agent-integration.md).
 
 ### Integration matrix
 
 | Scenario | Trigger | Execution | Service needed |
 | --- | --- | --- | --- |
 | Agent-first (hermes) | plugin hook on a bare video URL (deterministic, pre-LLM) | CLI subprocess, local mode | No (optional upgrade) |
-| Agent-first, phrased | skill / MCP tool (model judgment) | CLI via the agent's terminal | No |
+| Agent-first, phrased | skill (model judgment) | CLI via the agent's terminal | No |
 | No agent | IM bot adapter (Telegram/Lark webhook) | service queue + workers | Yes |
 | Scripted / manual | cron, mobile shortcut, hand-typed command | CLI, either mode | No |
 
@@ -435,8 +496,8 @@ machine.
 - [ ] Timestamp-preserving normalization.
 - [ ] Filesystem/Obsidian Markdown sink (sink contract pinned in
       `docs/tech-design-m1.md` §3.7).
-- [ ] Raw and updated document generation.
-- [ ] One default cleanup-and-summary skill.
+- [x] Raw, short-abstract, and long-form study-note generation.
+- [x] Packaged default abstract and deep-study skills.
 - [ ] IM completion/failure notifications.
 
 ### Milestone 2 — Personalization and more destinations
@@ -445,7 +506,7 @@ machine.
 - [ ] Lark/Feishu input adapter.
 - [ ] Lark Wiki/Docx and Notion sinks (projection adapters over the same
       artifact set, `docs/tech-design-m1.md` §3.7).
-- [ ] Regenerate updated output without refetching the transcript.
+- [x] Regenerate both summary outputs without refetching the transcript (`--re-enrich`).
 - [ ] Cost, latency, and provider usage reporting.
 
 ### Milestone 3 — Audio and ASR fallback
