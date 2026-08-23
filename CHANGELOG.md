@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Retry transient Doubao AUC failures per long-audio chunk and persist successful
+  chunk transcripts so a resumed ingestion does not resubmit completed work.
+
 ## 0.2.0 - 2026-08-23
 
 - Add agent-first enrichment with durable `claim`, `complete`, and `fail` commands.

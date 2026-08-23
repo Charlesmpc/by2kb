@@ -1,9 +1,9 @@
 # Doubao AUC ASR through private Volcengine TOS staging
 
-This is a proven reference flow for by2kb's future audio/ASR fallback. The runnable
-reference adapter is [`examples/doubao_auc_tos_asr.py`](../../examples/doubao_auc_tos_asr.py).
-It is intentionally not wired into the application yet because by2kb is still in its
-planning/pre-alpha phase.
+This document describes the Doubao AUC provider used by the application and the
+standalone reference adapter in
+[`examples/doubao_auc_tos_asr.py`](../../examples/doubao_auc_tos_asr.py).
+Both follow the same private-TOS staging and asynchronous transcription contract.
 
 ## Why TOS staging is needed
 
@@ -45,7 +45,12 @@ in source order.
 - `ffprobe` determines duration when available.
 - Inputs longer than 75 seconds are converted into ordered 60-second Ogg/Opus chunks
   with ffmpeg (`libopus`, 32 kbit/s).
-- Two chunks may be transcribed concurrently; `executor.map` preserves output order.
+- Two chunks may be transcribed concurrently; output remains ordered by chunk index.
+- Retryable provider and transport failures are retried per chunk up to three times
+  with exponential backoff and jitter. Terminal failures are not retried.
+- Successful chunk transcripts are written atomically under a source- and
+  configuration-addressed `.asr-checkpoints/` directory beside the downloaded audio.
+  A resumed ingestion loads those checkpoints instead of resubmitting completed chunks.
 
 The 25 MiB guard applies to each submitted file. Chunking is also a latency/reliability
 control: one slow long-file job cannot hold the whole ingestion worker indefinitely.

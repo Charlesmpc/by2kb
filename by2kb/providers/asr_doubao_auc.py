@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
+import random
 import subprocess
 import tempfile
 import time
@@ -25,6 +27,8 @@ STATUS_SILENT = "20000003"
 CHUNK_THRESHOLD_S = 75.0
 CHUNK_SECONDS = 60
 MAX_CONCURRENT_CHUNKS = 2
+CHUNK_MAX_ATTEMPTS = 3
+CHUNK_RETRY_BASE_DELAY_S = 3.0
 
 _FORMATS = {
     "ogg": ("ogg", "opus", "audio/ogg"),
@@ -168,6 +172,7 @@ class DoubaoAucAsrProvider:
         )
 
     async def _transcribe_chunked(self, path: Path, options: AsrOptions) -> str:
+        checkpoint_dir = self._checkpoint_dir(path, options)
         with tempfile.TemporaryDirectory(prefix="by2kb-doubao-asr-") as temp_dir:
             pattern = str(Path(temp_dir) / "chunk-%03d.ogg")
             proc = await asyncio.create_subprocess_exec(
@@ -187,17 +192,91 @@ class DoubaoAucAsrProvider:
             if not chunks:
                 raise TerminalProviderError("ffmpeg produced no audio chunks", provider=self.name)
 
-            semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHUNKS)
             chunk_options = options.model_copy(
                 update={"timeout_s": min(options.timeout_s, 150.0)}
             )
+            return await self._transcribe_chunks(chunks, chunk_options, checkpoint_dir)
 
-            async def run(chunk: Path) -> str:
-                async with semaphore:
-                    return await self._transcribe_one(chunk, "ogg", chunk_options)
+    def _checkpoint_dir(self, path: Path, options: AsrOptions) -> Path:
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for block in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(block)
+        digest.update(
+            json.dumps(
+                {
+                    "model": self.model,
+                    "resource_id": self._config.resource_id,
+                    "language": options.language,
+                    "chunk_seconds": CHUNK_SECONDS,
+                    "codec": "libopus-32k",
+                },
+                sort_keys=True,
+            ).encode("utf-8")
+        )
+        return path.parent / ".asr-checkpoints" / digest.hexdigest()
 
-            texts = await asyncio.gather(*(run(chunk) for chunk in chunks))
-            return "".join(text.strip() for text in texts if text.strip())
+    async def _transcribe_chunks(
+        self,
+        chunks: list[Path],
+        options: AsrOptions,
+        checkpoint_dir: Path,
+    ) -> str:
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            checkpoint_dir.chmod(0o700)
+        except OSError:
+            pass
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHUNKS)
+
+        async def run(index: int, chunk: Path) -> str:
+            checkpoint = checkpoint_dir / f"chunk-{index:03d}.txt"
+            if checkpoint.is_file():
+                try:
+                    return checkpoint.read_text(encoding="utf-8")
+                except (OSError, UnicodeError):
+                    checkpoint.unlink(missing_ok=True)
+
+            async with semaphore:
+                for attempt in range(1, CHUNK_MAX_ATTEMPTS + 1):
+                    try:
+                        text = await self._transcribe_one(chunk, "ogg", options)
+                    except TransientProviderError as exc:
+                        if attempt == CHUNK_MAX_ATTEMPTS:
+                            raise TransientProviderError(
+                                f"chunk {index} failed after {attempt} attempts: {exc}",
+                                provider=self.name,
+                                detail={"chunk_index": index, "attempts": attempt},
+                            ) from exc
+                        delay = CHUNK_RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
+                        await asyncio.sleep(delay + random.uniform(0, 1))
+                        continue
+                    except TerminalProviderError as exc:
+                        raise TerminalProviderError(
+                            f"chunk {index} failed on attempt {attempt}: {exc}",
+                            provider=self.name,
+                            detail={"chunk_index": index, "attempts": attempt},
+                        ) from exc
+
+                    temporary = checkpoint.with_suffix(".tmp")
+                    temporary.write_text(text, encoding="utf-8")
+                    temporary.replace(checkpoint)
+                    return text
+            raise AssertionError("unreachable chunk retry state")
+
+        results = await asyncio.gather(
+            *(run(index, chunk) for index, chunk in enumerate(chunks)),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, TerminalProviderError):
+                raise result
+        texts: list[str] = []
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+            texts.append(result)
+        return "".join(text.strip() for text in texts if text.strip())
 
     async def _transcribe_one(self, path: Path, audio_format: str, options: AsrOptions) -> str:
         config = self._config
