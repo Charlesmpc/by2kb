@@ -170,7 +170,8 @@ class BilibiliMediaProvider:
             )
         best = max(audios, key=lambda a: int(a.get("bandwidth") or 0))
         target = self._work_dir / f"{info.bvid}.m4a"
-        await self._download(best["baseUrl"], target, referer)
+        audio_urls = [best["baseUrl"], *(best.get("backupUrl") or [])]
+        await self._download(audio_urls, target, referer)
         return LocalAudio(
             path=target,
             format="mp4",
@@ -178,20 +179,24 @@ class BilibiliMediaProvider:
             size_bytes=target.stat().st_size,
         )
 
-    async def _download(self, url: str, target, referer: str) -> None:
+    async def _download(self, urls: list[str], target, referer: str) -> None:
         headers = _headers(referer)
         headers["Referer"] = referer
-        try:
-            async with self._client.stream("GET", url, headers=headers) as stream:
-                if stream.status_code not in (200, 206):
-                    raise TransientProviderError(
-                        f"audio download failed: HTTP {stream.status_code}",
-                        provider="bilibili",
-                    )
-                with open(target, "wb") as fh:
-                    async for chunk in stream.aiter_bytes(262144):
-                        fh.write(chunk)
-        except httpx.HTTPError as exc:
-            raise TransientProviderError(
-                f"audio download failed: {exc}", provider="bilibili"
-            ) from exc
+        last_error = "no audio URL available"
+        for url in dict.fromkeys(urls):
+            try:
+                async with self._client.stream("GET", url, headers=headers) as stream:
+                    if stream.status_code not in (200, 206):
+                        last_error = f"HTTP {stream.status_code}"
+                        continue
+                    with open(target, "wb") as fh:
+                        async for chunk in stream.aiter_bytes(262144):
+                            fh.write(chunk)
+                    return
+            except httpx.HTTPError as exc:
+                last_error = str(exc)
+        target.unlink(missing_ok=True)
+        raise TransientProviderError(
+            f"audio download failed on all CDN URLs: {last_error}",
+            provider="bilibili",
+        )
