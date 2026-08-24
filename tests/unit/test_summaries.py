@@ -91,12 +91,12 @@ def test_summary_frontmatter_records_artifact_type():
         model="test-model",
         provider="openai_compatible",
         artifact_type="short_abstract",
-        raw_ref="测试视频-BV1jmbD65EP2.raw.md",
+        raw_ref="raw.测试视频.md",
     )
 
     assert "artifact_type: short_abstract" in rendered
     assert "skills: short-video-abstract@1.0.0" in rendered
-    assert "raw_ref: ./测试视频-BV1jmbD65EP2.raw.md" in rendered
+    assert "raw_ref: ./raw.测试视频.md" in rendered
 
 
 async def test_build_summary_artifacts_creates_both_reading_depths(tmp_path):
@@ -111,7 +111,7 @@ async def test_build_summary_artifacts_creates_both_reading_depths(tmp_path):
             self.prompts.append(user)
             return f"# Generated {len(self.prompts)}"
 
-    raw_path = tmp_path / "测试视频-BV1jmbD65EP2.raw.md"
+    raw_path = tmp_path / "raw.测试视频.md"
     raw_path.write_text("# raw\n\n正文", encoding="utf-8")
     config = Config(
         home=tmp_path / "home",
@@ -129,8 +129,8 @@ async def test_build_summary_artifacts_creates_both_reading_depths(tmp_path):
     )
 
     assert set(artifacts) == {"abstract_md", "updated_md"}
-    assert artifacts["abstract_md"].name.endswith(".abstract.md")
-    assert artifacts["updated_md"].name.endswith(".updated.md")
+    assert artifacts["abstract_md"].name == "short.测试视频.md"
+    assert artifacts["updated_md"].name == "long.测试视频.md"
     assert "artifact_type: short_abstract" in artifacts["abstract_md"].read_text(
         encoding="utf-8"
     )

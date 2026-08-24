@@ -106,8 +106,8 @@ Target CLI contract:
 by2kb ingest <url> --enricher external_agent --json
 by2kb enrichment claim <job-id> --json
 by2kb enrichment complete <job-id> \
-  --abstract-file <abstract.md> \
-  --study-file <updated.md>
+  --abstract-file <short-output.md> \
+  --study-file <long-output.md>
 by2kb enrichment fail <job-id> --retryable --message <message>
 ```
 
@@ -187,9 +187,9 @@ and the plugin also records `(platform, video_id, job_id, phase)` for idempotenc
 User sends a Bilibili URL to the Telegram Hermes bot
   → plugin replies “accepted; transcribing”
   → plugin starts the installed by2kb CLI in the background
-  → by2kb creates source.json, transcript.json, and raw.md
+  → by2kb creates source.json, transcript.json, and raw.<title>.md
   → plugin uses the Hermes host LLM (default) or injects a full agent task
-  → abstract.md and updated.md are submitted to by2kb
+  → short and long Markdown bodies are submitted to by2kb
   → by2kb validates, publishes, and completes the job
   → Telegram receives the short abstract and durable artifact paths
 ```

@@ -1,4 +1,5 @@
 import os
+import unicodedata
 
 import pytest
 
@@ -21,12 +22,14 @@ def test_plain_title_passes_through():
         "a:b*c?d\"e<f>g|h",
         "line\nbreak\rand\ttab",
         "\x00\x1fcontrol",
+        "delete\x7fcontrol",
+        "c1\x80control",
     ],
 )
 def test_unsafe_characters_are_removed(raw):
     result = sanitize_title(raw)
     assert "\\" not in result and "/" not in result
-    assert not any(ord(ch) < 0x20 for ch in result)
+    assert not any(unicodedata.category(ch) == "Cc" for ch in result)
     assert result == result.strip()
 
 
@@ -69,14 +72,14 @@ def test_basename_keeps_video_identity():
     assert base.startswith("世界经济危机真的要来了吗？")
 
 
-def test_markdown_artifact_names_are_distinct():
+def test_markdown_artifact_names_use_reading_depth_prefixes():
     raw = markdown_artifact_name("标题", "BV1xx411c7mD", "raw")
-    abstract = markdown_artifact_name("标题", "BV1xx411c7mD", "abstract")
-    updated = markdown_artifact_name("标题", "BV1xx411c7mD", "updated")
-    assert raw == "标题-BV1xx411c7mD.raw.md"
-    assert abstract == "标题-BV1xx411c7mD.abstract.md"
-    assert updated == "标题-BV1xx411c7mD.updated.md"
-    assert len({raw, abstract, updated}) == 3
+    short = markdown_artifact_name("标题", "BV1xx411c7mD", "abstract")
+    long = markdown_artifact_name("标题", "BV1xx411c7mD", "updated")
+    assert raw == "raw.标题.md"
+    assert short == "short.标题.md"
+    assert long == "long.标题.md"
+    assert len({raw, short, long}) == 3
 
 
 def test_markdown_artifact_name_rejects_unknown_kind():

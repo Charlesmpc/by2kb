@@ -87,7 +87,7 @@ by2kb/
                           # needed by the audio playurl too)
   normalize.py            # provider payloads -> normalized transcript schema
   writers/
-    raw.py                # deterministic raw.md + source/transcript JSON
+    raw.py                # deterministic raw Markdown + source/transcript JSON
     updated.py            # generated Markdown with provenance frontmatter
   skills/
     model.py              # skill package parsing (SKILL.md frontmatter)
@@ -191,17 +191,18 @@ now means local→service graduation changes no adapter code.
 
 `library/<platform>/<video-id>/` contains `source.json`, `transcript.json`
 (the normalized schema from architecture.md), and three Markdown artifacts named
-`<sanitized-title>-<video-id>.raw.md`,
-`<sanitized-title>-<video-id>.abstract.md`, and
-`<sanitized-title>-<video-id>.updated.md`.
+`raw.<sanitized-title>.md`,
+`short.<sanitized-title>.md`, and
+`long.<sanitized-title>.md`.
 
 Naming contract:
 
 - Machine identity stays stable: the directory `library/<platform>/<video-id>/`
   and the fixed JSON names `source.json` / `transcript.json`.
-- Markdown filenames embed the sanitized video title so filesystem, Obsidian,
-  and sync-tool search results identify the video without opening the file,
-  plus the stable video id so same-title videos cannot overwrite each other.
+- Markdown filenames begin with reading depth (`raw`, `short`, `long`) and embed
+  the sanitized video title so filesystem, Obsidian, and sync-tool listings are
+  self-explanatory. Same-title videos cannot overwrite each other because each
+  video has its own stable `<video-id>` parent directory.
 - Sanitization: `\ / : * ? " < > |` and control characters become spaces,
   whitespace is collapsed, leading/trailing dots and spaces are stripped, and
   Windows reserved stems (CON, PRN, AUX, NUL, COM1–9, LPT1–9) get a `_`
@@ -209,11 +210,14 @@ Naming contract:
   at 80 characters, deterministically.
 - JSON payloads and Markdown frontmatter keep the original unsanitized title.
 - On republish, the filesystem sink retires previous Markdown artifacts of the
-  same kind — including legacy fixed-name `raw.md` / `updated.md` — so a title
-  change leaves no orphan; kinds not republished (e.g. an existing `updated.md`
-  when re-running without an LLM) are preserved.
+  same kind, fixed legacy names such as `raw.md` / `updated.md`, and
+  unambiguous old `<title>-<video-id>.<kind>.md` names. If an old filename is
+  indistinguishable from a current prefixed filename, the sink preserves it
+  rather than risk deleting a different reading depth. Kinds not republished
+  (e.g. an existing `long.<title>.md` when re-running without an LLM) are
+  preserved.
 
-`raw.md` frontmatter (deterministic — same input, byte-identical output):
+`raw.<title>.md` frontmatter (deterministic — same input, byte-identical output):
 
 ```yaml
 ---
@@ -235,18 +239,18 @@ Body: timestamped segments as `[M:SS] text`, linking back to the video at segmen
 granularity where the platform supports it.
 
 Both generated artifacts add: `skills: [{name, version}]`, `model`, `provider`,
-`artifact_type: short_abstract|study_notes`, `processed_at`, `raw_ref: ./raw.md`,
+`artifact_type: short_abstract|study_notes`, `processed_at`, `raw_ref: ./raw.<title>.md`,
 and `confidence: high|medium|low` (native transcript = high; ASR is lower).
 
 The two generated artifacts serve deliberately different reading moments:
 
-- `abstract.md` is bounded, decision-oriented, and should take less than one minute to
+- `short.<title>.md` is bounded, decision-oriented, and should take less than one minute to
   read. It answers what the video is about, what the reader will learn, and whether it
   merits deeper attention.
-- `updated.md` is the long-form study artifact. It organizes the thesis, knowledge
+- `long.<title>.md` is the long-form study artifact. It organizes the thesis, knowledge
   relationships, walkthrough, claims and evidence, terminology, open questions, and
   learning/actions. It links to timestamps when the transcript has reliable timing and
-  links back to `raw.md` as evidence.
+  links back to `raw.<title>.md` as evidence.
 
 ### 3.5 Skill packages and runner
 
@@ -263,7 +267,7 @@ implementation preset for the Volcengine Ark ecosystem (base URL + key +
 model, defaulting to the Ark endpoint and a doubao-series model).
 The runner makes one call per output profile. It receives the normalized transcript +
 raw markdown + profile skill instructions and returns Markdown; the writer assembles
-`abstract.md` and `updated.md` independently and records provenance. Separate calls
+`short.<title>.md` and `long.<title>.md` independently and records provenance. Separate calls
 keep the short artifact genuinely bounded instead of extracting it from a long answer,
 at the cost of one additional LLM request per ingested video.
 
@@ -320,7 +324,7 @@ Design rules:
   their own provider. Adding a provider is one new class plus its config docs;
   the pipeline does not change.
 - **Provenance flows through.** `AsrResult.provenance` records provider,
-  model, and staging method so `raw.md` can mark `transcript_kind: asr` with
+  model, and staging method so the raw artifact can mark `transcript_kind: asr` with
   lower confidence (§3.4), while operational details (object keys, presigned
   URLs) never reach durable artifacts.
 - The reference adapter's known gaps before promotion: per-chunk timing is
@@ -346,7 +350,7 @@ class KnowledgeSink(Protocol):
 Design rules:
 
 - **The filesystem layout is the reference layout** (§3.4):
-  `library/<platform>/<video-id>/{source.json,transcript.json,raw.md,abstract.md,updated.md}`.
+  `library/<platform>/<video-id>/{source.json,transcript.json,raw.<title>.md,short.<title>.md,long.<title>.md}`.
   The Milestone-1 `filesystem` sink writes exactly this, which also covers
   Obsidian (a vault is a folder of Markdown) and Git-backed libraries (commit
   the folder) with no dedicated adapter.
@@ -365,8 +369,8 @@ Design rules:
   where, so notifications can say "raw + updated published to Lark Wiki; JSON
   kept in local library" instead of silently dropping anything.
 - New sinks (Lark Wiki/Docx, Notion, generic webhook) are one class each in
-  Milestone 2; they map the reference layout as best they can (raw.md → wiki
-  page, updated.md → child page, JSON → attachment or omitted).
+  Milestone 2; they map the reference layout as best they can (`raw.<title>.md` → wiki
+  page, `long.<title>.md` → child page, JSON → attachment or omitted).
 
 ### 3.8 Media retrieval provider (Milestone 3 contract — pinned now, implemented later)
 
@@ -426,7 +430,7 @@ into artifacts.
 - **Providers**: recorded HTTP fixtures (VCR-style) per platform, including the
   error envelopes (`-352`, `-404`, `need_login_subtitle`, Supadata 202/206/429);
   assert error-taxonomy mapping, not raw payloads.
-- **Normalizer/writers**: golden-file tests — normalized schema in, raw.md bytes
+- **Normalizer/writers**: golden-file tests — normalized schema in, raw Markdown bytes
   out; determinism asserted by re-render equality.
 - **Idempotency**: re-ingest returns exit code 4 and identical artifact paths;
   `--refresh` refetches.
