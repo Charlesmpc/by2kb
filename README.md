@@ -146,8 +146,9 @@ From the user's point of view:
 ## Output model
 
 Every accepted video gets a stable content directory. JSON artifacts use fixed
-names; Markdown artifacts are named `<Title>-<video-id>.{raw,abstract,updated}.md` so
-ordinary file search identifies the video (naming contract:
+names; Markdown artifacts are named `raw.<Title>.md`, `short.<Title>.md`, and
+`long.<Title>.md`. The parent directory already carries the stable video ID, while
+the prefix makes reading depth obvious in ordinary file listings (naming contract:
 `docs/tech-design-m1.md` §3.4):
 
 ```text
@@ -155,18 +156,18 @@ library/
   youtube/<video-id>/
     source.json
     transcript.json
-    <Title>-<video-id>.raw.md
-    <Title>-<video-id>.abstract.md
-    <Title>-<video-id>.updated.md
+    raw.<Title>.md
+    short.<Title>.md
+    long.<Title>.md
   bilibili/<bvid>/
     source.json
     transcript.json
-    <Title>-<bvid>.raw.md
-    <Title>-<bvid>.abstract.md
-    <Title>-<bvid>.updated.md
+    raw.<Title>.md
+    short.<Title>.md
+    long.<Title>.md
 ```
 
-### `raw.md`
+### `raw.<Title>.md`
 
 The raw document should be deterministic and reproducible. It contains:
 
@@ -176,15 +177,15 @@ The raw document should be deterministic and reproducible. It contains:
 - timestamped transcript segments linking back to the original video;
 - no invented facts or silent rewriting.
 
-### `abstract.md`
+### `short.<Title>.md`
 
 The abstract is deliberately short and decision-oriented. It contains a one-sentence
 summary, two to four concrete learning outcomes, and a recommendation describing who
 will benefit from reading the study notes or watching the source.
 
-### `updated.md` (deep study notes)
+### `long.<Title>.md` (deep study notes)
 
-The updated document is generated from `raw.md` and records:
+The long document is generated from `raw.<Title>.md` and records:
 
 - skills and versions used;
 - model/provider metadata where applicable;
@@ -193,7 +194,7 @@ The updated document is generated from `raw.md` and records:
 - links back to the raw artifact and original video;
 - processing timestamp, so it can be regenerated when skills improve.
 
-Keeping generated files separate from `raw.md` prevents an AI rewrite from replacing
+Keeping generated files separate from `raw.<Title>.md` prevents an AI rewrite from replacing
 the evidence.
 
 ### LLM access and authentication
@@ -398,7 +399,7 @@ Markdown plus the original transcript JSON is the portable source of truth.
 
 `.env` is loaded from `$BY2KB_ENV_FILE`, `<BY2KB_HOME>/.env` (default
 `~/.by2kb/.env`), or `./.env`. Artifacts land in
-`<library>/bilibili/<bvid>/{source.json,transcript.json,raw.md,abstract.md,updated.md}`;
+`<library>/bilibili/<bvid>/{source.json,transcript.json,raw.<Title>.md,short.<Title>.md,long.<Title>.md}`;
 the abstract and study notes are produced by the configured API or external agent.
 Exit codes:
 0 completed, 1 terminal failure, 2 retryable, 3 needs auth, 4 duplicate.
@@ -409,8 +410,8 @@ Agent hosts use the durable external-enrichment protocol:
 by2kb ingest "<video-url>" --enricher external_agent --json
 by2kb enrichment claim <job-id> --json
 by2kb enrichment complete <job-id> \
-  --abstract-file <abstract.md> \
-  --study-file <study.md> \
+  --abstract-file <short-output.md> \
+  --study-file <long-output.md> \
   --provider <provider> \
   --model <model> \
   --json

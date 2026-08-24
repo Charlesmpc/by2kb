@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 MAX_TITLE_CHARS = 80
 
@@ -13,7 +14,11 @@ _RESERVED_NAMES = frozenset(
 
 
 def sanitize_title(title: str) -> str:
-    text = _UNSAFE_CHARS.sub(" ", str(title or ""))
+    text = "".join(
+        " " if unicodedata.category(char) == "Cc" else char
+        for char in str(title or "")
+    )
+    text = _UNSAFE_CHARS.sub(" ", text)
     text = " ".join(text.split())
     text = text.strip(" .")
     if not text:
@@ -31,6 +36,12 @@ def artifact_basename(title: str, video_id: str) -> str:
 
 
 def markdown_artifact_name(title: str, video_id: str, kind: str) -> str:
-    if kind not in ("raw", "abstract", "updated"):
+    prefixes = {
+        "raw": "raw",
+        "abstract": "short",
+        "updated": "long",
+    }
+    if kind not in prefixes:
         raise ValueError(f"unknown markdown artifact kind: {kind}")
-    return f"{artifact_basename(title, video_id)}.{kind}.md"
+    del video_id  # The parent directory is the durable video identity.
+    return f"{prefixes[kind]}.{sanitize_title(title)}.md"

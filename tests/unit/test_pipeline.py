@@ -133,7 +133,7 @@ def test_write_artifacts_creates_three_files(tmp_path, identity):
     assert set(outputs) == {"source_json", "transcript_json", "raw_md"}
     assert outputs["source_json"].name == "source.json"
     assert outputs["transcript_json"].name == "transcript.json"
-    assert outputs["raw_md"].name == "t-BV1jmbD65EP2.raw.md"
+    assert outputs["raw_md"].name == "raw.t.md"
     for path in outputs.values():
         assert path.is_file() and path.stat().st_size > 0
 
