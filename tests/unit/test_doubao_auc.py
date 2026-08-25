@@ -427,7 +427,12 @@ async def test_checkpoint_symlink_is_rejected(tmp_path):
     target = tmp_path / "target"
     target.mkdir()
     checkpoint_dir = tmp_path / "checkpoints"
-    checkpoint_dir.symlink_to(target, target_is_directory=True)
+    try:
+        checkpoint_dir.symlink_to(target, target_is_directory=True)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 1314:
+            pytest.skip("Windows symlink privilege is not available")
+        raise
     provider = DoubaoAucAsrProvider(
         DoubaoAucConfig("tos-ak", "tos-sk", "private-bucket")
     )

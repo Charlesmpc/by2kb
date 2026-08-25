@@ -11,7 +11,7 @@ The primary user is an **agent user**. Send a Bilibili URL to an agent such as H
 existing model authentication to produce both summaries. Standalone users can run the
 same pipeline with their own OpenAI-compatible API key.
 
-> **Current release: v0.2.0.** Bilibili ingestion, Doubao AUC ASR, local filesystem
+> **Current release: v0.2.1.** Bilibili ingestion, Doubao AUC ASR, local filesystem
 > output, API enrichment, the external-agent protocol, guided initialization, and the
 > Hermes plugin are implemented. YouTube, a resident service, native Telegram/Lark
 > bots, and remote knowledge-base sinks remain planned.
@@ -22,7 +22,7 @@ Requires Python 3.12+, `pipx`, and `ffmpeg`/`ffprobe` on PATH. Until the first P
 publication, install the versioned release artifact directly from GitHub:
 
 ```bash
-pipx install "by2kb[asr-doubao] @ https://github.com/Charlesmpc/by2kb/releases/download/v0.2.0/by2kb-0.2.0-py3-none-any.whl"
+pipx install "by2kb[asr-doubao] @ https://github.com/Charlesmpc/by2kb/releases/download/v0.2.1/by2kb-0.2.1-py3-none-any.whl"
 by2kb init
 ```
 
@@ -442,7 +442,7 @@ process.
 
 A resident service and remote client mode are planned for higher-volume deployments;
 `BY2KB_SERVER_URL`, HTTP submission, queues and remote workers are not implemented in
-v0.2.0.
+v0.2.1.
 
 ### Who needs the service?
 

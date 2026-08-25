@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 - 2026-08-25
 
 - Name durable Markdown artifacts `raw.<title>.md`, `short.<title>.md`, and
   `long.<title>.md`; safely retire fixed legacy names and unambiguous prior
   suffix-based names on republish.
+- Fall back through Bilibili backup audio CDNs when the preferred CDN returns an
+  HTTP or transport failure.
 - Retry transient Doubao AUC failures per long-audio chunk and persist successful
   chunk transcripts so a resumed ingestion does not resubmit completed work.
 - Classify queued, rate-limited, overloaded, and HTTP failure responses correctly;
