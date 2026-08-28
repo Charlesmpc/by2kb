@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Add a pluggable ASR provider registry with deterministic explicit selection and
+  ordered `auto` fallback.
+- Add optional local `faster-whisper` transcription with timestamped segments,
+  configurable runtime settings, and explicit model status/install commands.
+- Persist the selected ASR provider, model, and runtime provenance in source and
+  transcript artifacts.
+
 ## 0.2.1 - 2026-08-25
 
 - Name durable Markdown artifacts `raw.<title>.md`, `short.<title>.md`, and

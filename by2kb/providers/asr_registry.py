@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Mapping
 
 import httpx
 
@@ -101,10 +103,35 @@ class AsrProviderRegistry:
         )
 
 
-def build_default_asr_registry() -> AsrProviderRegistry:
+def build_default_asr_registry(
+    *,
+    asr_options: Mapping[str, object] | None = None,
+    home: Path | None = None,
+) -> AsrProviderRegistry:
     registry = AsrProviderRegistry()
+    registry.register(
+        "faster_whisper",
+        lambda client: _create_faster_whisper(client, asr_options, home),
+        priority=200,
+    )
     registry.register("doubao_auc", _create_doubao_auc, priority=100)
     return registry
+
+
+def _create_faster_whisper(
+    _client: httpx.AsyncClient,
+    options: Mapping[str, object] | None,
+    home: Path | None,
+) -> AsrProvider:
+    from by2kb.providers.asr_faster_whisper import (
+        FasterWhisperAsrProvider,
+        FasterWhisperConfig,
+        require_faster_whisper_ready,
+    )
+
+    config = FasterWhisperConfig.from_mapping(options, home=home)
+    require_faster_whisper_ready(config)
+    return FasterWhisperAsrProvider(config)
 
 
 def _create_doubao_auc(client: httpx.AsyncClient) -> AsrProvider:

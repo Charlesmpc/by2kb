@@ -42,6 +42,47 @@ def test_init_writes_agent_first_configuration(tmp_path, monkeypatch):
     assert config.resolved_enrichment_executor() == "external_agent"
 
 
+def test_init_allows_local_whisper_without_cloud_asr_secrets(tmp_path):
+    home = tmp_path / "home"
+    settings = InitSettings(
+        library_root=tmp_path / "kb",
+        asr_provider="faster_whisper",
+        enrichment_executor="disabled",
+    )
+
+    config_path, env_path = write_initial_config(home, settings)
+
+    assert 'provider = "faster_whisper"' in config_path.read_text(encoding="utf-8")
+    assert "VOLC_ACCESS_KEY_ID" not in env_path.read_text(encoding="utf-8")
+
+
+def test_load_config_preserves_asr_provider_options(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "config.toml").write_text(
+        """
+[asr]
+provider = "faster_whisper"
+model = "large-v3"
+device = "cpu"
+compute_type = "int8"
+vad_filter = true
+""".strip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BY2KB_HOME", str(home))
+
+    config = load_config()
+
+    assert config.asr_provider == "faster_whisper"
+    assert config.asr_options == {
+        "model": "large-v3",
+        "device": "cpu",
+        "compute_type": "int8",
+        "vad_filter": True,
+    }
+
+
 @pytest.mark.asyncio
 async def test_external_agent_claim_and_complete(tmp_path):
     config = Config(

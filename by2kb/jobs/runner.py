@@ -216,7 +216,10 @@ async def ingest_url(
             executor_name = config.resolved_enrichment_executor(enricher)
         except ValueError as exc:
             raise ConfigError(str(exc)) from exc
-        registry = asr_registry or build_default_asr_registry()
+        registry = asr_registry or build_default_asr_registry(
+            asr_options=config.asr_options,
+            home=config.home,
+        )
         async with httpx.AsyncClient(
             timeout=60, follow_redirects=True, max_redirects=5
         ) as client:

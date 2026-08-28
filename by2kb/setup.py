@@ -28,17 +28,23 @@ class InitSettings:
     llm_base_url: str = DEFAULT_LLM_BASE_URL
 
     def validate(self) -> None:
-        build_default_asr_registry().resolve_name(self.asr_provider)
-        required = {
-            "VOLC_ACCESS_KEY_ID": self.tos_access_key,
-            "VOLC_SECRET_ACCESS_KEY": self.tos_secret_key,
-            "TOS_BUCKET": self.tos_bucket,
-        }
-        missing = [name for name, value in required.items() if not value.strip()]
-        if not self.doubao_api_key.strip() and not (
-            self.doubao_app_id.strip() and self.doubao_access_token.strip()
-        ):
-            missing.append("DOUBAO_API_KEY (or DOUBAO_APPID + DOUBAO_ACCESS_TOKEN)")
+        selected_asr = build_default_asr_registry().resolve_name(self.asr_provider)
+        missing: list[str] = []
+        if selected_asr == "doubao_auc":
+            required = {
+                "VOLC_ACCESS_KEY_ID": self.tos_access_key,
+                "VOLC_SECRET_ACCESS_KEY": self.tos_secret_key,
+                "TOS_BUCKET": self.tos_bucket,
+            }
+            missing.extend(
+                name for name, value in required.items() if not value.strip()
+            )
+            if not self.doubao_api_key.strip() and not (
+                self.doubao_app_id.strip() and self.doubao_access_token.strip()
+            ):
+                missing.append(
+                    "DOUBAO_API_KEY (or DOUBAO_APPID + DOUBAO_ACCESS_TOKEN)"
+                )
         if self.enrichment_executor == "api" and not (
             self.llm_api_key.strip() and self.llm_model.strip()
         ):
@@ -94,20 +100,24 @@ def render_config_toml(settings: InitSettings) -> str:
 
 
 def render_env(settings: InitSettings) -> str:
-    endpoint = settings.tos_endpoint.strip() or (
-        f"tos-s3-{settings.tos_region}.volces.com"
-    )
-    values = {
-        "VOLC_ACCESS_KEY_ID": settings.tos_access_key,
-        "VOLC_SECRET_ACCESS_KEY": settings.tos_secret_key,
-        "TOS_BUCKET": settings.tos_bucket,
-        "TOS_REGION": settings.tos_region,
-        "TOS_S3_ENDPOINT": endpoint,
-        "DOUBAO_API_KEY": settings.doubao_api_key,
-        "DOUBAO_APPID": settings.doubao_app_id,
-        "DOUBAO_ACCESS_TOKEN": settings.doubao_access_token,
-        "DOUBAO_RESOURCE_ID": settings.doubao_resource_id,
-    }
+    values: dict[str, str] = {}
+    if settings.asr_provider.strip().lower() in {"doubao_auc", "auto"}:
+        endpoint = settings.tos_endpoint.strip() or (
+            f"tos-s3-{settings.tos_region}.volces.com"
+        )
+        values.update(
+            {
+                "VOLC_ACCESS_KEY_ID": settings.tos_access_key,
+                "VOLC_SECRET_ACCESS_KEY": settings.tos_secret_key,
+                "TOS_BUCKET": settings.tos_bucket,
+                "TOS_REGION": settings.tos_region,
+                "TOS_S3_ENDPOINT": endpoint,
+                "DOUBAO_API_KEY": settings.doubao_api_key,
+                "DOUBAO_APPID": settings.doubao_app_id,
+                "DOUBAO_ACCESS_TOKEN": settings.doubao_access_token,
+                "DOUBAO_RESOURCE_ID": settings.doubao_resource_id,
+            }
+        )
     if settings.enrichment_executor == "api":
         values.update(
             {

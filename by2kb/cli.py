@@ -17,13 +17,20 @@ from by2kb.jobs.enrichment_service import (
 )
 from by2kb.jobs.runner import ingest_url
 from by2kb.jobs.store import JobStore
+from by2kb.providers.asr_faster_whisper import (
+    FasterWhisperConfig,
+    faster_whisper_status,
+    install_faster_whisper_model,
+)
 from by2kb.setup import InitSettings, write_initial_config
 
 app = typer.Typer(help="by2kb — forward a video, keep the knowledge")
 enrichment_app = typer.Typer(help="External-agent enrichment protocol")
 agent_app = typer.Typer(help="Install by2kb into an agent host")
+models_app = typer.Typer(help="Inspect and install optional local ASR models")
 app.add_typer(enrichment_app, name="enrichment")
 app.add_typer(agent_app, name="agent")
+app.add_typer(models_app, name="models")
 
 
 def _configure_stdio() -> None:
@@ -108,6 +115,53 @@ def status(
 @app.command()
 def version() -> None:
     typer.echo(__version__)
+
+
+@models_app.command("status")
+def models_status(
+    model: str | None = typer.Argument(None, help="Whisper model override"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Inspect the selected faster-whisper dependency and model cache."""
+    _configure_stdio()
+    config = load_config()
+    options = dict(config.asr_options)
+    if model:
+        options["model"] = model
+    whisper = FasterWhisperConfig.from_mapping(options, home=config.home)
+    payload = faster_whisper_status(whisper)
+    if json_out:
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+        return
+    dependency = "installed" if payload["dependency_installed"] else "missing"
+    model_state = "installed" if payload["model_installed"] else "missing"
+    typer.echo(f"faster-whisper dependency: {dependency}")
+    typer.echo(f"model {payload['model']}: {model_state}")
+    typer.echo(f"path: {payload['model_path']}")
+
+
+@models_app.command("install")
+def models_install(
+    model: str | None = typer.Argument(None, help="Whisper model override"),
+) -> None:
+    """Explicitly download a faster-whisper model into the by2kb model cache."""
+    _configure_stdio()
+    config = load_config()
+    options = dict(config.asr_options)
+    if model:
+        options["model"] = model
+    whisper = FasterWhisperConfig.from_mapping(options, home=config.home)
+    current = faster_whisper_status(whisper)
+    if current["model_installed"]:
+        typer.echo(f"Model already installed: {current['model_path']}")
+        return
+    typer.echo(f"Downloading faster-whisper model {whisper.model}...")
+    try:
+        path = install_faster_whisper_model(whisper)
+    except ConfigError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(exc.exit_code) from exc
+    typer.echo(f"Installed model: {path}")
 
 
 @app.command("init")
