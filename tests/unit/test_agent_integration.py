@@ -48,12 +48,20 @@ def test_init_allows_local_whisper_without_cloud_asr_secrets(tmp_path):
         library_root=tmp_path / "kb",
         asr_provider="faster_whisper",
         enrichment_executor="disabled",
+        whisper_model="large-v3",
+        whisper_device="cpu",
+        whisper_compute_type="int8",
     )
 
     config_path, env_path = write_initial_config(home, settings)
 
     assert 'provider = "faster_whisper"' in config_path.read_text(encoding="utf-8")
+    rendered = config_path.read_text(encoding="utf-8")
+    assert 'model = "large-v3"' in rendered
+    assert 'device = "cpu"' in rendered
+    assert 'compute_type = "int8"' in rendered
     assert "VOLC_ACCESS_KEY_ID" not in env_path.read_text(encoding="utf-8")
+    assert settings.library_root.is_dir()
 
 
 def test_load_config_preserves_asr_provider_options(tmp_path, monkeypatch):

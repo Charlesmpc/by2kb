@@ -26,6 +26,9 @@ class InitSettings:
     llm_api_key: str = ""
     llm_model: str = ""
     llm_base_url: str = DEFAULT_LLM_BASE_URL
+    whisper_model: str = "large-v3-turbo"
+    whisper_device: str = "auto"
+    whisper_compute_type: str = "default"
 
     def validate(self) -> None:
         selected_asr = build_default_asr_registry().resolve_name(self.asr_provider)
@@ -53,6 +56,13 @@ class InitSettings:
             raise ConfigError(
                 f"unsupported enrichment executor: {self.enrichment_executor}"
             )
+        if selected_asr == "faster_whisper":
+            if not self.whisper_model.strip():
+                missing.append("faster-whisper model")
+            if self.whisper_device not in {"auto", "cpu", "cuda"}:
+                raise ConfigError("faster-whisper device must be auto, cpu, or cuda")
+            if not self.whisper_compute_type.strip():
+                missing.append("faster-whisper compute type")
         values = (
             self.tos_access_key,
             self.tos_secret_key,
@@ -66,6 +76,9 @@ class InitSettings:
             self.llm_api_key,
             self.llm_model,
             self.llm_base_url,
+            self.whisper_model,
+            self.whisper_device,
+            self.whisper_compute_type,
         )
         if any("\n" in value or "\r" in value for value in values):
             raise ConfigError("configuration values must not contain newlines")
@@ -81,12 +94,24 @@ def render_config_toml(settings: InitSettings) -> str:
         "",
         "[asr]",
         f"provider = {json.dumps(settings.asr_provider)}",
-        "",
-        "[enrichment]",
-        f"executor = {json.dumps(settings.enrichment_executor)}",
-        'abstract_profile = "short-video-abstract"',
-        'study_profile = "default-video-digest"',
     ]
+    if settings.asr_provider.strip().lower() == "faster_whisper":
+        lines.extend(
+            [
+                f"model = {json.dumps(settings.whisper_model)}",
+                f"device = {json.dumps(settings.whisper_device)}",
+                f"compute_type = {json.dumps(settings.whisper_compute_type)}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "[enrichment]",
+            f"executor = {json.dumps(settings.enrichment_executor)}",
+            'abstract_profile = "short-video-abstract"',
+            'study_profile = "default-video-digest"',
+        ]
+    )
     if settings.enrichment_executor == "api":
         lines.extend(
             [
@@ -144,6 +169,12 @@ def write_initial_config(
         raise ConfigError(
             "configuration already exists: " + ", ".join(str(path) for path in existing)
         )
+    try:
+        settings.library_root.expanduser().mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ConfigError(
+            f"cannot create knowledge-base folder: {settings.library_root}: {exc}"
+        ) from exc
     config_path.write_text(render_config_toml(settings), encoding="utf-8")
     env_path.write_text(render_env(settings), encoding="utf-8")
     try:
