@@ -27,6 +27,7 @@ class SourceMeta(BaseModel):
 
 class TranscriptMeta(BaseModel):
     provider: str
+    model: str | None = None
     kind: TranscriptKind
     language: str | None = None
     available_languages: list[str] = []
@@ -93,6 +94,7 @@ def from_asr_result(
         ),
         transcript=TranscriptMeta(
             provider=asr_result.provider,
+            model=asr_result.model,
             kind="asr",
             language=asr_result.language,
             fetched_at=fetched_at,

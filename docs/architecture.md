@@ -32,6 +32,10 @@ Transcript Worker ──► Normalizer ──► Raw Writer ─┼─► Skill R
 - **Input adapters** authenticate an IM event, extract URLs and user options, and submit jobs.
 - **Source adapters** resolve canonical IDs, metadata, and native transcript tracks.
 - **Media/ASR adapters** are optional phase-two fallbacks and must be independently enabled.
+  ASR implementations are selected through a registry; the job runner depends only on
+  the common provider contract. Explicit provider names are deterministic, while
+  `auto` tries registered providers in priority order and reports why candidates are
+  unavailable.
 - **Browser capture adapter** (phase 2b) is a special media provider: it drives a
   headless browser to the watch page, extracts the media source the page itself plays
   (player object or observed network requests), downloads the stream, and hands the
@@ -151,6 +155,7 @@ still a useful successful result and can be updated later without refetching.
   },
   "transcript": {
     "provider": "...",
+    "model": "...",
     "kind": "human|auto_caption|asr",
     "language": "en",
     "available_languages": ["en", "zh-CN"],

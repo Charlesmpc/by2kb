@@ -26,7 +26,7 @@ from by2kb.jobs.store import JobStore
 from by2kb.normalize import NormalizedTranscript, from_asr_result
 from by2kb.providers import bilibili
 from by2kb.providers.asr import AsrOptions
-from by2kb.providers.asr_doubao_auc import DoubaoAucAsrProvider, DoubaoAucConfig
+from by2kb.providers.asr_registry import AsrProviderRegistry, build_default_asr_registry
 from by2kb.providers.base import FetchOptions
 from by2kb.providers.bilibili_wbi import WbiKeyCache
 from by2kb.sinks.filesystem import FilesystemSink
@@ -207,6 +207,7 @@ async def ingest_url(
     re_enrich: bool = False,
     enricher: str | None = None,
     requested_by: str | None = None,
+    asr_registry: AsrProviderRegistry | None = None,
 ) -> IngestOutcome:
     store = JobStore(config.db_path)
     job: Job | None = None
@@ -215,8 +216,7 @@ async def ingest_url(
             executor_name = config.resolved_enrichment_executor(enricher)
         except ValueError as exc:
             raise ConfigError(str(exc)) from exc
-        if config.asr_provider != "doubao_auc":
-            raise ConfigError(f"unsupported ASR provider: {config.asr_provider}")
+        registry = asr_registry or build_default_asr_registry()
         async with httpx.AsyncClient(
             timeout=60, follow_redirects=True, max_redirects=5
         ) as client:
@@ -295,6 +295,7 @@ async def ingest_url(
             options = FetchOptions(preferred_languages=config.preferred_languages)
             work_dir = config.home / "jobs" / job.id
             work_dir.mkdir(parents=True, exist_ok=True)
+            asr = registry.create(config.asr_provider, client)
 
             store.update_status(job.id, JobStatus.RESOLVING)
             info = await bilibili.fetch_video_info(client, identity.video_id)
@@ -304,7 +305,6 @@ async def ingest_url(
             audio = await media.fetch_audio(identity, options)
 
             store.update_status(job.id, JobStatus.TRANSCRIBING)
-            asr = DoubaoAucAsrProvider(DoubaoAucConfig.from_env(), client)
             asr_timeout = max(150.0, (info.duration_s or 0) * 1.5)
             asr_result = await asr.transcribe(audio, AsrOptions(timeout_s=asr_timeout))
 
@@ -320,6 +320,8 @@ async def ingest_url(
             staging = work_dir / "artifacts"
             source_payload = {
                 "view": info.model_dump(),
+                "asr_provider": asr_result.provider,
+                "asr_model": asr_result.model,
                 "asr_provenance": asr_result.provenance,
             }
             artifacts = write_artifacts(
