@@ -6,6 +6,8 @@
   ordered `auto` fallback.
 - Add optional local `faster-whisper` transcription with timestamped segments,
   configurable runtime settings, and explicit model status/install commands.
+- Accept local audio and video paths in `by2kb ingest`, with content-addressed
+  identity, ffmpeg audio extraction, and privacy-safe filename provenance.
 - Persist the selected ASR provider, model, and runtime provenance in source and
   transcript artifacts.
 

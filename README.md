@@ -6,9 +6,9 @@
 base: the evidence-preserving transcript, a short “is this worth reading?” abstract,
 and long-form study notes.
 
-The primary user is an **agent user**. Send a Bilibili URL to an agent such as Hermes;
-`by2kb` handles media retrieval and the selected local or cloud ASR provider, while
-the agent uses its existing model authentication to produce both summaries.
+The primary user is an **agent user**. Send a Bilibili URL or media attachment to an
+agent such as Hermes; `by2kb` handles media retrieval and the selected local or cloud
+ASR provider, while the agent uses its existing model authentication to produce both summaries.
 Standalone users can run the same pipeline with their own OpenAI-compatible API key.
 
 > **Current release: v0.2.1.** Bilibili ingestion, Doubao AUC ASR, local filesystem
@@ -55,12 +55,16 @@ API key, then run:
 
 ```bash
 by2kb ingest "https://www.bilibili.com/video/<bvid>/"
+by2kb ingest ./meeting.mp3
+by2kb ingest ./lecture.mp4
 ```
 
 See [Agent integration](docs/agent-integration.md) for the reusable
 `ingest → claim → complete/fail` contract used by other agent hosts.
 See [ASR providers](docs/asr-providers.md) for optional local faster-whisper setup,
 explicit model installation, and the existing cloud Doubao path.
+See [Local media](docs/local-media.md) for supported formats, content-addressed
+deduplication, ffmpeg requirements, and attachment handling.
 
 The name can be read as **B/Y to KB** — Bilibili and YouTube to Knowledge Base — while
 the architecture is intended to support more video sources over time.

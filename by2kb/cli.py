@@ -15,7 +15,7 @@ from by2kb.jobs.enrichment_service import (
     complete_external_enrichment,
     fail_external_enrichment,
 )
-from by2kb.jobs.runner import ingest_url
+from by2kb.jobs.runner import ingest_source
 from by2kb.jobs.store import JobStore
 from by2kb.providers.asr_faster_whisper import (
     FasterWhisperConfig,
@@ -46,7 +46,7 @@ def _configure_stdio() -> None:
 
 @app.command()
 def ingest(
-    url: str = typer.Argument(..., help="Video URL (Bilibili for now)"),
+    source: str = typer.Argument(..., help="Bilibili URL or local audio/video path"),
     refresh: bool = typer.Option(False, "--refresh", help="Bypass idempotent reuse"),
     re_enrich: bool = typer.Option(
         False,
@@ -65,8 +65,8 @@ def ingest(
     if refresh and re_enrich:
         raise typer.BadParameter("--refresh and --re-enrich cannot be used together")
     outcome = asyncio.run(
-        ingest_url(
-            url,
+        ingest_source(
+            source,
             config,
             refresh=refresh,
             re_enrich=re_enrich,
