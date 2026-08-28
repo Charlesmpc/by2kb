@@ -46,6 +46,7 @@ STATUS_FOR_ERROR = {
     "TerminalProviderError": JobStatus.FAILED_TERMINAL,
     "ConfigError": JobStatus.FAILED_TERMINAL,
     "UnsupportedUrl": JobStatus.FAILED_TERMINAL,
+    "TranscriptQualityError": JobStatus.FAILED_TERMINAL,
 }
 
 

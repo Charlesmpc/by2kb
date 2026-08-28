@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Protocol, runtime_checkable
 
 import httpx
@@ -76,6 +77,12 @@ def build_prompts(
         "and answer with Markdown only. Never invent facts, speakers, or timestamps "
         "that are not present in the transcript."
     )
+    quality = normalized.transcript.quality
+    quality_context = (
+        json.dumps(quality.model_dump(mode="json"), ensure_ascii=False, indent=2)
+        if quality
+        else "not assessed"
+    )
     user = (
         f"# Skill: {skill.name} v{skill.version}\n\n"
         f"{skill.body}\n\n"
@@ -85,6 +92,7 @@ def build_prompts(
         f"- title: {normalized.source.title}\n"
         f"- author: {normalized.source.author}\n"
         f"- transcript_kind: {normalized.transcript.kind}\n\n"
+        f"# Deterministic transcript quality assessment\n\n{quality_context}\n\n"
         f"# Raw transcript (Markdown)\n\n{raw_md}"
     )
     return system, user

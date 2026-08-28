@@ -9,6 +9,7 @@ import pytest
 from by2kb.config import Config, LlmConfig
 from by2kb.errors import ConfigError, TerminalProviderError
 from by2kb.jobs import runner
+from by2kb.jobs.store import JobStore
 from by2kb.providers import local_media
 from by2kb.providers.asr import AsrOptions, AsrResult
 from by2kb.providers.asr_registry import AsrProviderRegistry
@@ -193,9 +194,12 @@ async def test_local_audio_fixture_runs_raw_pipeline(tmp_path, monkeypatch):
     transcript = json.loads(Path(outcome.artifacts["transcript_json"]).read_text())
     assert transcript["source"]["platform"] == "local"
     assert transcript["source"]["title"] == "meeting"
+    assert transcript["transcript"]["quality"]["assessment_version"] == "1.0"
+    assert transcript["transcript"]["quality"]["status"] == "pass"
     source_json = json.loads(Path(outcome.artifacts["source_json"]).read_text())
     assert source_json["local_media"]["original_filename"] == "meeting.mp3"
     assert "path" not in source_json["local_media"]
+    assert source_json["transcript_quality"]["metrics"]["effective_char_count"] > 0
 
 
 @pytest.mark.asyncio
@@ -263,3 +267,37 @@ async def test_identical_local_content_is_idempotent_across_filenames(
     assert completed.status == "completed"
     assert duplicate.status == "duplicate"
     assert duplicate.job_id == completed.job_id
+
+
+@pytest.mark.asyncio
+async def test_unusable_local_transcript_preserves_raw_but_skips_enrichment(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "silent.wav"
+    source.write_bytes(b"RIFF silent fixture")
+    monkeypatch.setattr(runner, "prepare_local_audio", _fake_prepare)
+
+    class EmptyAsr:
+        name = "fixture"
+
+        async def transcribe(self, _audio, _options):
+            return AsrResult(provider=self.name, model="fixture", text="")
+
+    registry = AsrProviderRegistry()
+    registry.register("fixture", lambda _client: EmptyAsr())
+    config = _config(tmp_path, executor="external_agent")
+    outcome = await runner.ingest_source(
+        str(source),
+        config,
+        asr_registry=registry,
+    )
+
+    assert outcome.status == "failed_terminal"
+    assert "empty_transcript" in outcome.message
+    assert Path(outcome.artifacts["raw_md"]).is_file()
+    assert set(outcome.artifacts) == {"source_json", "transcript_json", "raw_md"}
+    store = JobStore(config.db_path)
+    try:
+        assert store.get_enrichment_task(outcome.job_id) is None
+    finally:
+        store.close()

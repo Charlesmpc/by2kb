@@ -54,5 +54,9 @@ class TerminalProviderError(ProviderError):
     exit_code = EXIT_TERMINAL
 
 
+class TranscriptQualityError(By2kbError):
+    """The raw transcript is preserved, but enrichment must not run."""
+
+
 def category_of(error: By2kbError) -> str:
     return type(error).__name__

@@ -20,6 +20,7 @@ from by2kb.errors import (
     By2kbError,
     ConfigError,
     DuplicateJob,
+    TranscriptQualityError,
     UnsupportedUrl,
     category_of,
 )
@@ -36,6 +37,7 @@ from by2kb.providers.local_media import (
     inspect_local_media,
     prepare_local_audio,
 )
+from by2kb.quality import assess_transcript
 from by2kb.sinks.filesystem import FilesystemSink
 from by2kb.skills.runner import LlmClient, OpenAiCompatibleClient
 from by2kb.writers.raw import content_hash, write_artifacts
@@ -129,6 +131,7 @@ def _failure(store: JobStore, job: Job | None, error: By2kbError) -> IngestOutco
         exit_code=error.exit_code,
         job_id=job.id if job else None,
         status=status.value,
+        artifacts=_stored_artifacts(store, job.id) if job else {},
         message=f"{category_of(error)}: {error}",
     )
 
@@ -406,6 +409,15 @@ async def _ingest(
                     normalized = NormalizedTranscript.model_validate_json(
                         Path(stored[KIND_TRANSCRIPT_JSON]).read_text(encoding="utf-8")
                     )
+                    quality = normalized.transcript.quality or assess_transcript(
+                        normalized
+                    )
+                    normalized.transcript.quality = quality
+                    if quality.status == "fail":
+                        raise TranscriptQualityError(
+                            "stored transcript is unusable for enrichment: "
+                            + ", ".join(quality.reasons)
+                        )
                     staging = config.home / "jobs" / existing.id / "artifacts"
                     return await _run_enrichment(
                         store=store,
@@ -473,6 +485,8 @@ async def _ingest(
                 asr_result=asr_result,
                 fetched_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             )
+            quality = assess_transcript(normalized)
+            normalized.transcript.quality = quality
             staging = work_dir / "artifacts"
             source_payload = dict(prepared.source_payload)
             source_payload.update(
@@ -480,6 +494,7 @@ async def _ingest(
                     "asr_provider": asr_result.provider,
                     "asr_model": asr_result.model,
                     "asr_provenance": asr_result.provenance,
+                    "transcript_quality": quality.model_dump(mode="json"),
                 }
             )
             artifacts = write_artifacts(
@@ -499,6 +514,12 @@ async def _ingest(
                     content_hash(path),
                 )
             store.update_status(job.id, JobStatus.RAW_PUBLISHED)
+            if quality.status == "fail":
+                raise TranscriptQualityError(
+                    "transcript is unusable for enrichment: "
+                    + ", ".join(quality.reasons)
+                    + "; inspect the raw transcript and retry with another ASR provider"
+                )
             return await _run_enrichment(
                 store=store,
                 job=job,
