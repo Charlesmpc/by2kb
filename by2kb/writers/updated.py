@@ -18,6 +18,8 @@ def render_updated_md(
     provider: str,
     artifact_type: str = "study_notes",
     raw_ref: str = "raw.md",
+    enrichment_pipeline: str = "single_pass",
+    enrichment_plan_hash: str = "",
 ) -> str:
     source = normalized.source
     frontmatter = render_frontmatter(
@@ -39,6 +41,8 @@ def render_updated_md(
                 if normalized.transcript.quality
                 else "unknown"
             ),
+            "enrichment_pipeline": enrichment_pipeline,
+            "enrichment_plan_hash": enrichment_plan_hash,
         }
     )
     notice = quality_notice(normalized.transcript.quality)

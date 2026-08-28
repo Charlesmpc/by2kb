@@ -21,6 +21,15 @@ class LlmConfig:
         return bool(self.api_key and self.model)
 
 
+@dataclass(frozen=True)
+class LongFormConfig:
+    threshold_tokens: int = 8_000
+    chunk_token_budget: int = 4_000
+    chunk_duration_s: int = 900
+    reduce_token_budget: int = 6_000
+    reduce_group_size: int = 4
+
+
 @dataclass
 class Config:
     home: Path
@@ -36,6 +45,7 @@ class Config:
     asr_options: dict[str, object] = field(default_factory=dict)
     enrichment_executor: str = "auto"
     llm: LlmConfig = field(default_factory=LlmConfig)
+    long_form: LongFormConfig = field(default_factory=LongFormConfig)
 
     def resolved_enrichment_executor(self, override: str | None = None) -> str:
         executor = override or self.enrichment_executor
@@ -93,6 +103,11 @@ def load_config(home: Path | None = None) -> Config:
     enrichment_section = (
         data.get("enrichment", {}) if isinstance(data.get("enrichment"), dict) else {}
     )
+    long_form_section = (
+        enrichment_section.get("long_form", {})
+        if isinstance(enrichment_section.get("long_form"), dict)
+        else {}
+    )
     llm = LlmConfig(
         api_key=os.environ.get(f"{ENV_PREFIX}LLM_API_KEY") or llm_section.get("api_key"),
         base_url=str(pick("llm_base_url", llm_section.get("base_url") or DEFAULT_LLM_BASE_URL)),
@@ -129,4 +144,15 @@ def load_config(home: Path | None = None) -> Config:
             )
         ),
         llm=llm,
+        long_form=LongFormConfig(
+            threshold_tokens=int(long_form_section.get("threshold_tokens", 8_000)),
+            chunk_token_budget=int(
+                long_form_section.get("chunk_token_budget", 4_000)
+            ),
+            chunk_duration_s=int(long_form_section.get("chunk_duration_s", 900)),
+            reduce_token_budget=int(
+                long_form_section.get("reduce_token_budget", 6_000)
+            ),
+            reduce_group_size=int(long_form_section.get("reduce_group_size", 4)),
+        ),
     )

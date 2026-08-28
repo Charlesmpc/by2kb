@@ -75,6 +75,8 @@ deduplication, ffmpeg requirements, and attachment handling.
 See [Diagnostics](docs/doctor.md) for every read-only check and the Agent-facing JSON schema.
 See [Transcript quality](docs/transcript-quality.md) for deterministic enrichment gates,
 recorded metrics, and warning behavior.
+See [Long-form enrichment](docs/long-form-enrichment.md) for segment-safe planning,
+intermediate caching, recursive reduction, and provenance.
 
 The name can be read as **B/Y to KB** — Bilibili and YouTube to Knowledge Base — while
 the architecture is intended to support more video sources over time.

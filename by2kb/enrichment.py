@@ -4,9 +4,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from by2kb.config import Config
+from by2kb.config import Config, LongFormConfig
 from by2kb.errors import ConfigError
 from by2kb.filenames import markdown_artifact_name
+from by2kb.longform import (
+    KIND_ENRICHMENT_PLAN_JSON,
+    LongFormEnrichmentPipeline,
+    TranscriptChunkPlanner,
+    chunk_prompt,
+    write_enrichment_trace,
+)
 from by2kb.normalize import NormalizedTranscript
 from by2kb.skills.model import Skill, find_skill
 from by2kb.skills.runner import LlmClient, build_prompts, run_skill
@@ -24,6 +31,8 @@ class EnrichmentRequest:
     staging: Path
     abstract_skill: Skill
     study_skill: Skill
+    long_form: LongFormConfig
+    cache_root: Path
 
 
 @dataclass(frozen=True)
@@ -46,13 +55,20 @@ class ApiEnrichmentExecutor:
         self._llm = llm
 
     async def submit(self, request: EnrichmentRequest) -> EnrichmentSubmission:
+        pipeline = LongFormEnrichmentPipeline(request.long_form, request.cache_root)
+        prepared = await pipeline.run(request, self._llm)
         generated: dict[str, Path] = {}
         for kind, filename_kind, artifact_type, skill in _outputs(request):
             body = await run_skill(
                 skill,
                 request.normalized,
-                request.raw_path.read_text(encoding="utf-8"),
+                prepared.context,
                 self._llm,
+                source_label=(
+                    "Raw transcript (Markdown)"
+                    if prepared.trace.strategy == "single_pass"
+                    else "Hierarchically reduced grounded transcript notes"
+                ),
             )
             generated[kind] = _write_output(
                 request,
@@ -62,7 +78,13 @@ class ApiEnrichmentExecutor:
                 skill=skill,
                 provider=self._llm.provider,
                 model=self._llm.model,
+                pipeline=prepared.trace.pipeline_version,
+                plan_hash=prepared.trace.plan_hash,
             )
+        generated[KIND_ENRICHMENT_PLAN_JSON] = write_enrichment_trace(
+            request.staging,
+            prepared.trace,
+        )
         return EnrichmentSubmission(deferred=False, artifacts=generated)
 
 
@@ -116,12 +138,15 @@ def create_enrichment_request(
         staging=staging,
         abstract_skill=abstract_skill,
         study_skill=study_skill,
+        long_form=config.long_form,
+        cache_root=config.home / "enrichment-cache",
     )
 
 
 def external_manifest(request: EnrichmentRequest) -> dict:
     raw_md = request.raw_path.read_text(encoding="utf-8")
     outputs: dict[str, dict] = {}
+    plan = TranscriptChunkPlanner(request.long_form).plan(request.normalized)
     for kind, _filename_kind, artifact_type, skill in _outputs(request):
         system, user = build_prompts(skill, request.normalized, raw_md)
         outputs[kind] = {
@@ -131,11 +156,33 @@ def external_manifest(request: EnrichmentRequest) -> dict:
             "system_prompt": system,
             "user_prompt": user,
         }
+    chunk_operations = []
+    for chunk in plan.chunks:
+        content = "\n".join(
+            f"[{segment.start_ms // 60000}:{(segment.start_ms // 1000) % 60:02d}] "
+            f"{segment.text.strip()}"
+            for segment in request.normalized.transcript.segments[
+                chunk.first_segment : chunk.last_segment + 1
+            ]
+        )
+        system, user = chunk_prompt(request.normalized, chunk, content)
+        chunk_operations.append(
+            {
+                "id": chunk.id,
+                "system_prompt": system,
+                "user_prompt": user,
+            }
+        )
     return {
         "job_id": request.job_id,
         "raw_path": str(request.raw_path),
         "source": request.normalized.source.model_dump(mode="json"),
         "outputs": outputs,
+        "pipeline": {
+            **plan.model_dump(mode="json"),
+            "plan_hash": plan.plan_hash,
+            "chunk_operations": chunk_operations,
+        },
     }
 
 
@@ -183,6 +230,8 @@ def _write_output(
     skill: Skill,
     provider: str,
     model: str,
+    pipeline: str = "single_pass",
+    plan_hash: str = "",
 ) -> Path:
     output_name = markdown_artifact_name(
         request.normalized.source.title,
@@ -200,6 +249,8 @@ def _write_output(
             provider=provider,
             artifact_type=artifact_type,
             raw_ref=request.raw_path.name,
+            enrichment_pipeline=pipeline,
+            enrichment_plan_hash=plan_hash,
         ),
         filename=output_name,
     )

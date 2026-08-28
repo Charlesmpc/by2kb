@@ -128,7 +128,11 @@ async def test_build_summary_artifacts_creates_both_reading_depths(tmp_path):
         llm,
     )
 
-    assert set(artifacts) == {"abstract_md", "updated_md"}
+    assert set(artifacts) == {
+        "abstract_md",
+        "updated_md",
+        "enrichment_plan_json",
+    }
     assert artifacts["abstract_md"].name == "short.测试视频.md"
     assert artifacts["updated_md"].name == "long.测试视频.md"
     assert "artifact_type: short_abstract" in artifacts["abstract_md"].read_text(
