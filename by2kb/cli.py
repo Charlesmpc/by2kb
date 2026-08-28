@@ -9,6 +9,7 @@ import typer
 from by2kb import __version__
 from by2kb.agent_install import install_hermes_plugin
 from by2kb.config import default_home, load_config
+from by2kb.doctor import run_doctor
 from by2kb.errors import By2kbError, ConfigError
 from by2kb.jobs.enrichment_service import (
     claim_external_enrichment,
@@ -175,26 +176,55 @@ def init_config(
     library_root = Path(
         typer.prompt("Knowledge-base folder", default=str(home / "library"))
     ).expanduser()
-    tos_access_key = typer.prompt("TOS access key", hide_input=True)
-    tos_secret_key = typer.prompt("TOS secret key", hide_input=True)
-    tos_bucket = typer.prompt("Private TOS bucket")
-    tos_region = typer.prompt("TOS region", default="ap-southeast-1")
-    tos_endpoint = typer.prompt(
-        "TOS S3 endpoint (blank uses the regional default)", default=""
+    asr_mode = typer.prompt(
+        "ASR provider (local-whisper or doubao)", default="local-whisper"
     )
-    auth_mode = typer.prompt(
-        "Doubao ASR authentication (api-key or legacy)", default="api-key"
-    )
-    if auth_mode not in {"api-key", "legacy"}:
-        raise typer.BadParameter("ASR authentication must be api-key or legacy")
+    asr_provider = {
+        "local-whisper": "faster_whisper",
+        "doubao": "doubao_auc",
+    }.get(asr_mode)
+    if asr_provider is None:
+        raise typer.BadParameter("ASR provider must be local-whisper or doubao")
+
+    tos_access_key = ""
+    tos_secret_key = ""
+    tos_bucket = ""
+    tos_region = "ap-southeast-1"
+    tos_endpoint = ""
     doubao_api_key = ""
     doubao_app_id = ""
     doubao_access_token = ""
-    if auth_mode == "api-key":
-        doubao_api_key = typer.prompt("Doubao ASR API key", hide_input=True)
+    whisper_model = "large-v3-turbo"
+    whisper_device = "auto"
+    whisper_compute_type = "default"
+    if asr_provider == "faster_whisper":
+        whisper_model = typer.prompt("Whisper model", default=whisper_model)
+        whisper_device = typer.prompt(
+            "Whisper device (auto, cpu, or cuda)", default=whisper_device
+        )
+        whisper_compute_type = typer.prompt(
+            "Whisper compute type", default=whisper_compute_type
+        )
     else:
-        doubao_app_id = typer.prompt("Doubao app id")
-        doubao_access_token = typer.prompt("Doubao access token", hide_input=True)
+        tos_access_key = typer.prompt("TOS access key", hide_input=True)
+        tos_secret_key = typer.prompt("TOS secret key", hide_input=True)
+        tos_bucket = typer.prompt("Private TOS bucket")
+        tos_region = typer.prompt("TOS region", default=tos_region)
+        tos_endpoint = typer.prompt(
+            "TOS S3 endpoint (blank uses the regional default)", default=""
+        )
+        auth_mode = typer.prompt(
+            "Doubao ASR authentication (api-key or legacy)", default="api-key"
+        )
+        if auth_mode not in {"api-key", "legacy"}:
+            raise typer.BadParameter("ASR authentication must be api-key or legacy")
+        if auth_mode == "api-key":
+            doubao_api_key = typer.prompt("Doubao ASR API key", hide_input=True)
+        else:
+            doubao_app_id = typer.prompt("Doubao app id")
+            doubao_access_token = typer.prompt(
+                "Doubao access token", hide_input=True
+            )
 
     enrichment_mode = typer.prompt(
         "Summary mode (agent, api, or disabled)", default="agent"
@@ -214,6 +244,7 @@ def init_config(
 
     settings = InitSettings(
         library_root=library_root,
+        asr_provider=asr_provider,
         enrichment_executor=executor,
         tos_access_key=tos_access_key,
         tos_secret_key=tos_secret_key,
@@ -226,6 +257,9 @@ def init_config(
         llm_api_key=llm_api_key,
         llm_model=llm_model,
         llm_base_url=llm_base_url,
+        whisper_model=whisper_model,
+        whisper_device=whisper_device,
+        whisper_compute_type=whisper_compute_type,
     )
     try:
         config_path, env_path = write_initial_config(home, settings, force=force)
@@ -234,10 +268,38 @@ def init_config(
         raise typer.Exit(exc.exit_code) from exc
     typer.echo(f"Configuration: {config_path}")
     typer.echo(f"Secrets: {env_path}")
+    if asr_provider == "faster_whisper":
+        typer.echo("Next: install the optional faster-whisper runtime and model.")
+        typer.echo("  pipx inject by2kb 'faster-whisper>=1.2.1,<2'")
+        typer.echo(f"  by2kb models install {whisper_model}")
     if executor == "external_agent":
         typer.echo("Next: by2kb agent install hermes")
+    typer.echo("Then verify everything: by2kb doctor")
+
+
+@app.command("doctor")
+def doctor(
+    provider: str | None = typer.Option(None, "--provider", help="ASR provider override"),
+    json_out: bool = typer.Option(False, "--json", help="Machine-readable report"),
+) -> None:
+    """Check the configured pipeline without changing config or downloading models."""
+    _configure_stdio()
+    try:
+        report = run_doctor(load_config(), provider=provider)
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    payload = report.to_dict()
+    if json_out:
+        typer.echo(json.dumps(payload, ensure_ascii=False))
     else:
-        typer.echo("Next: by2kb ingest <video-url>")
+        for check in report.checks:
+            marker = "PASS" if check.ok else "FAIL"
+            typer.echo(f"[{marker}] {check.id}: {check.message}")
+            if check.remediation:
+                typer.echo(f"       Fix: {check.remediation}")
+        typer.echo("Ready." if report.ok else "Some checks failed.")
+    if not report.ok:
+        raise typer.Exit(1)
 
 
 @enrichment_app.command("claim")

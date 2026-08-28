@@ -15,7 +15,7 @@ Implemented in `by2kb` today:
 - the durable `external_agent` executor and `claim|complete|fail` protocol;
 - a bundled Hermes plugin with an authorized-user URL hook and host-owned LLM calls;
 - a bundled Hermes Skill for natural-language/manual invocation;
-- `by2kb init` and `by2kb agent install hermes`.
+- guided `by2kb init`, read-only `by2kb doctor`, and `by2kb agent install hermes`.
 
 Future host adapters, including a Codex-specific plugin, can reuse the same CLI
 protocol. MCP is optional and is not used by the Hermes implementation.

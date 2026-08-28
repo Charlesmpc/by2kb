@@ -29,10 +29,17 @@ by2kb init
 `by2kb init` guides you through four decisions:
 
 1. where the local knowledge base should live;
-2. which private Volcengine TOS bucket temporarily stages audio;
-3. how to authenticate to Doubao AUC ASR;
+2. whether transcription uses local faster-whisper or cloud Doubao AUC;
+3. local model settings, or the private TOS bucket and Doubao credentials;
 4. whether summaries run in an agent (`agent`), through a standalone LLM API (`api`),
    or remain disabled.
+
+After installing the selected optional ASR runtime/model, verify the deployment:
+
+```bash
+by2kb doctor
+by2kb doctor --json
+```
 
 ### Agent-first: Hermes
 
@@ -65,6 +72,7 @@ See [ASR providers](docs/asr-providers.md) for optional local faster-whisper set
 explicit model installation, and the existing cloud Doubao path.
 See [Local media](docs/local-media.md) for supported formats, content-addressed
 deduplication, ffmpeg requirements, and attachment handling.
+See [Diagnostics](docs/doctor.md) for every read-only check and the Agent-facing JSON schema.
 
 The name can be read as **B/Y to KB** — Bilibili and YouTube to Knowledge Base — while
 the architecture is intended to support more video sources over time.

@@ -8,6 +8,8 @@
   configurable runtime settings, and explicit model status/install commands.
 - Accept local audio and video paths in `by2kb ingest`, with content-addressed
   identity, ffmpeg audio extraction, and privacy-safe filename provenance.
+- Expand guided initialization for local/cloud ASR and add read-only `by2kb doctor`
+  diagnostics with a stable Agent-readable JSON report.
 - Persist the selected ASR provider, model, and runtime provenance in source and
   transcript artifacts.
 
