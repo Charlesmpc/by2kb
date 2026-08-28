@@ -52,8 +52,9 @@ hermes gateway restart
 
 Now an authorized user can send a Bilibili or `b23.tv` URL to the Telegram Hermes bot.
 The plugin acknowledges immediately, runs transcription in the background, calls the
-Hermes host model twice, writes all three artifacts, and replies with the short abstract
-and knowledge-base paths. No MCP server and no separate by2kb LLM key are required.
+Hermes host model through bounded staged operations, writes all three artifacts, and
+replies with the short abstract and knowledge-base paths. No MCP server and no
+separate by2kb LLM key are required.
 
 ### Standalone
 
@@ -77,6 +78,8 @@ See [Transcript quality](docs/transcript-quality.md) for deterministic enrichmen
 recorded metrics, and warning behavior.
 See [Long-form enrichment](docs/long-form-enrichment.md) for segment-safe planning,
 intermediate caching, recursive reduction, and provenance.
+See [Agent enrichment provider](docs/agent-enrichment-provider.md) for the bounded
+callback protocol and API-key versus subscription/OAuth authentication tradeoffs.
 
 The name can be read as **B/Y to KB** — Bilibili and YouTube to Knowledge Base — while
 the architecture is intended to support more video sources over time.

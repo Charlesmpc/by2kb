@@ -18,11 +18,13 @@ For an explicit/manual request:
 2. If configuration is missing, run `by2kb init` and let the user provide TOS and
    Doubao ASR credentials. Select `agent` for enrichment.
 3. Run `by2kb ingest <URL_OR_LOCAL_PATH> --enricher external_agent --json`.
-4. Run `by2kb enrichment claim <JOB_ID> --json`.
-5. Follow each returned system and user prompt exactly. Save the short response
-   and study response as UTF-8 Markdown files.
-6. Run `by2kb enrichment complete <JOB_ID> --abstract-file <PATH> --study-file
-   <PATH> --provider <HOST_PROVIDER> --model <HOST_MODEL> --json`.
+4. Run `by2kb enrichment next <JOB_ID> --provider <HOST_PROVIDER> --model
+   <HOST_MODEL> --json`.
+5. When status is `needs_input`, follow the returned system and user prompt exactly,
+   save the bounded response as UTF-8 Markdown, and run `by2kb enrichment submit
+   <JOB_ID> --operation-id <ID> --output-file <PATH> --provider <HOST_PROVIDER>
+   --model <HOST_MODEL> --json`.
+6. Repeat steps 4–5 until `next` returns status `completed`.
 7. Report the three knowledge-base paths: raw transcript, short abstract, and
    long-form study notes.
 

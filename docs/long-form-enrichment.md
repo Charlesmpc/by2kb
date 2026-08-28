@@ -41,6 +41,6 @@ keys/hits, runtime identity, and Skill versions. It intentionally excludes
 intermediate note bodies and hidden reasoning. Generated Markdown records the
 pipeline version and plan hash in frontmatter.
 
-External-Agent claims receive the same deterministic chunk plan and prompts. The
-Agent execution adapter and staged submission lifecycle are layered on this contract
-in the Agent-provider phase.
+External Agents execute the same plan through bounded `enrichment next` and
+`enrichment submit` operations. Successful intermediate nodes enter the same cache,
+so an Agent retry resumes at the first missing operation.

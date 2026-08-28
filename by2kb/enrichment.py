@@ -48,8 +48,10 @@ class EnrichmentExecutor(Protocol):
     async def submit(self, request: EnrichmentRequest) -> EnrichmentSubmission: ...
 
 
-class ApiEnrichmentExecutor:
-    name = "api"
+class LlmEnrichmentProvider:
+    """Shared deterministic pipeline for direct APIs and Agent callback runtimes."""
+
+    name = "llm"
 
     def __init__(self, llm: LlmClient):
         self._llm = llm
@@ -86,6 +88,12 @@ class ApiEnrichmentExecutor:
             prepared.trace,
         )
         return EnrichmentSubmission(deferred=False, artifacts=generated)
+
+
+class ApiEnrichmentExecutor(LlmEnrichmentProvider):
+    """Direct API-key provider retained for backwards compatibility."""
+
+    name = "api"
 
 
 class ExternalAgentEnrichmentExecutor:

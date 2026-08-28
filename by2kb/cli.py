@@ -15,6 +15,8 @@ from by2kb.jobs.enrichment_service import (
     claim_external_enrichment,
     complete_external_enrichment,
     fail_external_enrichment,
+    next_external_enrichment_operation,
+    submit_external_enrichment_operation,
 )
 from by2kb.jobs.runner import ingest_source
 from by2kb.jobs.store import JobStore
@@ -345,6 +347,67 @@ def enrichment_complete(
         typer.echo(json.dumps(result.to_dict(), ensure_ascii=False))
     else:
         typer.echo(f"completed enrichment task: {job_id}")
+
+
+@enrichment_app.command("next")
+def enrichment_next(
+    job_id: str = typer.Argument(...),
+    provider: str = typer.Option(..., "--provider"),
+    model: str = typer.Option(..., "--model"),
+    runtime_version: str = typer.Option("", "--runtime-version"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Advance staged Agent enrichment and return the next bounded operation."""
+    _configure_stdio()
+    try:
+        payload = asyncio.run(
+            next_external_enrichment_operation(
+                load_config(),
+                job_id,
+                provider=provider,
+                model=model,
+                runtime_version=runtime_version,
+            )
+        )
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    if json_out:
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+    elif payload["status"] == "needs_input":
+        operation = payload["operation"]
+        typer.echo(f"Agent operation ready: {operation['id']}")
+    else:
+        typer.echo(f"Agent enrichment {payload['status']}: {job_id}")
+
+
+@enrichment_app.command("submit")
+def enrichment_submit(
+    job_id: str = typer.Argument(...),
+    operation_id: str = typer.Option(..., "--operation-id"),
+    output_file: Path = typer.Option(..., "--output-file"),
+    provider: str = typer.Option(..., "--provider"),
+    model: str = typer.Option(..., "--model"),
+    runtime_version: str = typer.Option("", "--runtime-version"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Submit one bounded host-Agent response to the staged pipeline."""
+    _configure_stdio()
+    try:
+        payload = submit_external_enrichment_operation(
+            load_config(),
+            job_id,
+            operation_id=operation_id,
+            output_path=output_file,
+            provider=provider,
+            model=model,
+            runtime_version=runtime_version,
+        )
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    if json_out:
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+    else:
+        typer.echo(f"Accepted Agent operation: {operation_id}")
 
 
 @enrichment_app.command("fail")
