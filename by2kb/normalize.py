@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from by2kb.providers.base import SourceIdentity
+from by2kb.quality import TranscriptQuality
 
 TranscriptKind = Literal["human", "auto_caption", "asr"]
 
@@ -33,6 +34,7 @@ class TranscriptMeta(BaseModel):
     available_languages: list[str] = []
     fetched_at: str
     segments: list[Segment] = []
+    quality: TranscriptQuality | None = None
 
 
 class NormalizedTranscript(BaseModel):

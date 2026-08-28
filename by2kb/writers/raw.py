@@ -6,6 +6,7 @@ from pathlib import Path
 
 from by2kb.filenames import markdown_artifact_name
 from by2kb.normalize import NormalizedTranscript, format_timestamp
+from by2kb.quality import quality_notice
 
 SOURCE_JSON = "source.json"
 TRANSCRIPT_JSON = "transcript.json"
@@ -47,9 +48,13 @@ def render_raw_md(normalized: NormalizedTranscript) -> str:
             "transcript_model": transcript.model or "",
             "transcript_kind": transcript.kind,
             "fetched_at": transcript.fetched_at,
+            "transcript_quality": transcript.quality.status if transcript.quality else "",
         }
     )
     lines = [frontmatter, "", f"# {source.title}", ""]
+    notice = quality_notice(transcript.quality)
+    if notice:
+        lines.extend([notice, ""])
     if transcript.kind == "asr" and len(transcript.segments) <= 1:
         lines.append(
             "> ASR output without per-segment timing; text covers the full audio."

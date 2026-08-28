@@ -4,6 +4,7 @@ from pathlib import Path
 
 from by2kb.jobs.model import utcnow_iso
 from by2kb.normalize import NormalizedTranscript
+from by2kb.quality import quality_notice
 from by2kb.writers.raw import render_frontmatter
 
 
@@ -33,9 +34,16 @@ def render_updated_md(
             "processed_at": utcnow_iso(),
             "raw_ref": f"./{raw_ref}",
             "confidence": "high" if normalized.transcript.kind != "asr" else "medium",
+            "transcript_quality": (
+                normalized.transcript.quality.status
+                if normalized.transcript.quality
+                else "unknown"
+            ),
         }
     )
-    return f"{frontmatter}\n\n{body.rstrip()}\n"
+    notice = quality_notice(normalized.transcript.quality)
+    prefix = f"{notice}\n\n" if notice else ""
+    return f"{frontmatter}\n\n{prefix}{body.rstrip()}\n"
 
 
 def write_updated_md(target_dir: Path, content: str, *, filename: str) -> Path:

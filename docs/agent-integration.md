@@ -48,6 +48,10 @@ Capture, artifact validation, publishing, hashing, and job state remain in `by2k
 Only the component that turns an `EnrichmentRequest` into two Markdown bodies is
 polymorphic.
 
+Before an enrichment request is created, by2kb records a deterministic transcript
+quality assessment. Failed assessments preserve raw artifacts but cannot be claimed;
+warnings are included in Agent prompts and forced into both generated outputs.
+
 Suggested configuration:
 
 ```toml
