@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,8 +29,13 @@ from by2kb.normalize import NormalizedTranscript, from_asr_result
 from by2kb.providers import bilibili
 from by2kb.providers.asr import AsrOptions
 from by2kb.providers.asr_registry import AsrProviderRegistry, build_default_asr_registry
-from by2kb.providers.base import FetchOptions
+from by2kb.providers.base import FetchOptions, LocalAudio, SourceIdentity
 from by2kb.providers.bilibili_wbi import WbiKeyCache
+from by2kb.providers.local_media import (
+    LocalMediaInfo,
+    inspect_local_media,
+    prepare_local_audio,
+)
 from by2kb.sinks.filesystem import FilesystemSink
 from by2kb.skills.runner import LlmClient, OpenAiCompatibleClient
 from by2kb.writers.raw import content_hash, write_artifacts
@@ -57,6 +64,22 @@ class IngestOutcome:
             "artifacts": self.artifacts,
             "message": self.message,
         }
+
+
+@dataclass(frozen=True)
+class PreparedMedia:
+    title: str
+    author: str
+    duration_s: float | None
+    audio: LocalAudio
+    source_payload: dict[str, object]
+
+
+ResolveSource = Callable[[httpx.AsyncClient], Awaitable[SourceIdentity]]
+PrepareMedia = Callable[
+    [httpx.AsyncClient, SourceIdentity, Path, FetchOptions, JobStore, Job],
+    Awaitable[PreparedMedia],
+]
 
 
 async def build_summary_artifacts(
@@ -199,8 +222,143 @@ async def _run_enrichment(
     )
 
 
+async def ingest_source(
+    source: str,
+    config: Config,
+    *,
+    refresh: bool = False,
+    re_enrich: bool = False,
+    enricher: str | None = None,
+    requested_by: str | None = None,
+    asr_registry: AsrProviderRegistry | None = None,
+) -> IngestOutcome:
+    """Dispatch a URL or local path into the same ingestion pipeline."""
+    candidate = (source or "").strip()
+    lowered = candidate.lower()
+    if (
+        lowered.startswith(("http://", "https://"))
+        or "://" in candidate
+        or "bilibili.com" in lowered
+        or "b23.tv" in lowered
+        or candidate.startswith("BV")
+    ):
+        return await ingest_url(
+            candidate,
+            config,
+            refresh=refresh,
+            re_enrich=re_enrich,
+            enricher=enricher,
+            requested_by=requested_by,
+            asr_registry=asr_registry,
+        )
+    return await ingest_local_file(
+        candidate,
+        config,
+        refresh=refresh,
+        re_enrich=re_enrich,
+        enricher=enricher,
+        requested_by=requested_by,
+        asr_registry=asr_registry,
+    )
+
+
 async def ingest_url(
     url: str,
+    config: Config,
+    *,
+    refresh: bool = False,
+    re_enrich: bool = False,
+    enricher: str | None = None,
+    requested_by: str | None = None,
+    asr_registry: AsrProviderRegistry | None = None,
+) -> IngestOutcome:
+    async def resolver(client: httpx.AsyncClient) -> SourceIdentity:
+        return await resolve_url(url, client)
+
+    async def prepare(
+        client: httpx.AsyncClient,
+        identity: SourceIdentity,
+        work_dir: Path,
+        fetch_options: FetchOptions,
+        store: JobStore,
+        job: Job,
+    ) -> PreparedMedia:
+        info = await bilibili.fetch_video_info(client, identity.video_id)
+        store.update_status(job.id, JobStatus.CAPTURING_MEDIA)
+        media = bilibili.BilibiliMediaProvider(client, WbiKeyCache(client), work_dir)
+        audio = await media.fetch_audio(identity, fetch_options)
+        return PreparedMedia(
+            title=info.title,
+            author=info.author,
+            duration_s=info.duration_s,
+            audio=audio,
+            source_payload={"view": info.model_dump()},
+        )
+
+    return await _ingest(
+        resolver,
+        prepare,
+        config,
+        refresh=refresh,
+        re_enrich=re_enrich,
+        enricher=enricher,
+        requested_by=requested_by,
+        asr_registry=asr_registry,
+    )
+
+
+async def ingest_local_file(
+    source: str | Path,
+    config: Config,
+    *,
+    refresh: bool = False,
+    re_enrich: bool = False,
+    enricher: str | None = None,
+    requested_by: str | None = None,
+    asr_registry: AsrProviderRegistry | None = None,
+) -> IngestOutcome:
+    media_info: LocalMediaInfo | None = None
+
+    async def resolver(_client: httpx.AsyncClient) -> SourceIdentity:
+        nonlocal media_info
+        media_info = await asyncio.to_thread(inspect_local_media, source)
+        return media_info.identity
+
+    async def prepare(
+        _client: httpx.AsyncClient,
+        _identity: SourceIdentity,
+        work_dir: Path,
+        _fetch_options: FetchOptions,
+        store: JobStore,
+        job: Job,
+    ) -> PreparedMedia:
+        if media_info is None:  # pragma: no cover - resolver contract guard
+            raise ConfigError("local media was not resolved")
+        store.update_status(job.id, JobStatus.CAPTURING_MEDIA)
+        audio, duration_s = await prepare_local_audio(media_info, work_dir)
+        return PreparedMedia(
+            title=Path(media_info.original_filename).stem,
+            author="Local media",
+            duration_s=duration_s,
+            audio=audio,
+            source_payload=media_info.source_payload(duration_s=duration_s),
+        )
+
+    return await _ingest(
+        resolver,
+        prepare,
+        config,
+        refresh=refresh,
+        re_enrich=re_enrich,
+        enricher=enricher,
+        requested_by=requested_by,
+        asr_registry=asr_registry,
+    )
+
+
+async def _ingest(
+    resolve_source: ResolveSource,
+    prepare_media: PrepareMedia,
     config: Config,
     *,
     refresh: bool = False,
@@ -223,14 +381,7 @@ async def ingest_url(
         async with httpx.AsyncClient(
             timeout=60, follow_redirects=True, max_redirects=5
         ) as client:
-            try:
-                identity = await resolve_url(url, client)
-            except UnsupportedUrl as error:
-                return IngestOutcome(
-                    exit_code=error.exit_code,
-                    status="failed_terminal",
-                    message=str(error),
-                )
+            identity = await resolve_source(client)
 
             existing = store.find_existing(identity.platform, identity.video_id)
             if existing is not None:
@@ -301,32 +452,36 @@ async def ingest_url(
             asr = registry.create(config.asr_provider, client)
 
             store.update_status(job.id, JobStatus.RESOLVING)
-            info = await bilibili.fetch_video_info(client, identity.video_id)
-
-            store.update_status(job.id, JobStatus.CAPTURING_MEDIA)
-            media = bilibili.BilibiliMediaProvider(client, WbiKeyCache(client), work_dir)
-            audio = await media.fetch_audio(identity, options)
+            prepared = await prepare_media(
+                client, identity, work_dir, options, store, job
+            )
 
             store.update_status(job.id, JobStatus.TRANSCRIBING)
-            asr_timeout = max(150.0, (info.duration_s or 0) * 1.5)
-            asr_result = await asr.transcribe(audio, AsrOptions(timeout_s=asr_timeout))
+            asr_timeout = max(150.0, (prepared.duration_s or 0) * 1.5)
+            asr_result = await asr.transcribe(
+                prepared.audio, AsrOptions(timeout_s=asr_timeout)
+            )
 
             store.update_status(job.id, JobStatus.NORMALIZING)
             normalized = from_asr_result(
                 identity,
-                title=info.title,
-                author=info.author,
-                duration_ms=info.duration_s * 1000 if info.duration_s else None,
+                title=prepared.title,
+                author=prepared.author,
+                duration_ms=(
+                    int(prepared.duration_s * 1000) if prepared.duration_s else None
+                ),
                 asr_result=asr_result,
                 fetched_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             )
             staging = work_dir / "artifacts"
-            source_payload = {
-                "view": info.model_dump(),
-                "asr_provider": asr_result.provider,
-                "asr_model": asr_result.model,
-                "asr_provenance": asr_result.provenance,
-            }
+            source_payload = dict(prepared.source_payload)
+            source_payload.update(
+                {
+                    "asr_provider": asr_result.provider,
+                    "asr_model": asr_result.model,
+                    "asr_provenance": asr_result.provenance,
+                }
+            )
             artifacts = write_artifacts(
                 staging, source_payload=source_payload, normalized=normalized
             )

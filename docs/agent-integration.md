@@ -28,7 +28,7 @@ protocol. MCP is optional and is not used by the Hermes implementation.
 video URL
    │
    ▼
-resolve → audio → ASR → normalize → raw artifacts
+resolve URL/path → audio → ASR → normalize → raw artifacts
                                       │
                                       ▼
                               EnrichmentRequest
