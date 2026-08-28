@@ -8,6 +8,7 @@ import pytest
 from by2kb.config import Config, LongFormConfig
 from by2kb.errors import ConfigError
 from by2kb.integrations.hermes import (
+    _VIDEO_URL,
     _run_staged_enrichment,
 )
 from by2kb.jobs.enrichment_service import (
@@ -20,6 +21,19 @@ from by2kb.normalize import from_asr_result
 from by2kb.providers.asr import AsrResult
 from by2kb.providers.base import SourceIdentity
 from by2kb.writers.raw import content_hash, write_artifacts
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.youtube.com/watch?v=video123",
+        "https://youtu.be/video123",
+        "https://www.youtube.com/shorts/video123",
+        "https://m.youtube.com/watch?v=video123",
+    ],
+)
+def test_hermes_intercepts_single_youtube_video_urls(url):
+    assert _VIDEO_URL.fullmatch(url)
 
 
 def _external_job(tmp_path: Path, *, long: bool = True) -> tuple[Config, str]:

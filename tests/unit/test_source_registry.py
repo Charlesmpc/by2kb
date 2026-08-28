@@ -7,11 +7,15 @@ import httpx
 import pytest
 
 from by2kb.config import load_config
-from by2kb.errors import ConfigError
+from by2kb.errors import ConfigError, NeedsAuth, RateLimited, UnsupportedUrl
 from by2kb.providers.base import FetchOptions, SourceIdentity
 from by2kb.providers.source_bilibili import BilibiliSourceProvider
 from by2kb.providers.source_registry import SourceProviderRegistry
-from by2kb.providers.yt_dlp_source import YtDlpSourceConfig, YtDlpSourceProvider
+from by2kb.providers.yt_dlp_source import (
+    YtDlpSourceConfig,
+    YtDlpSourceProvider,
+    _mapped_error,
+)
 
 
 class FakeProvider:
@@ -169,6 +173,22 @@ def test_ytdlp_rejects_ambiguous_cookie_configuration():
         YtDlpSourceConfig.from_mapping(
             {"cookie_file": "cookies.txt", "cookies_from_browser": "chrome"}
         )
+
+
+@pytest.mark.asyncio
+async def test_ytdlp_rejects_playlist_metadata(tmp_path):
+    backend = FakeYtDlpBackend(
+        {"_type": "playlist", "id": "playlist", "entries": []}
+    )
+    provider = YtDlpSourceProvider(YtDlpSourceConfig(), backend=backend)
+    async with httpx.AsyncClient() as client:
+        with pytest.raises(UnsupportedUrl, match="one video URL"):
+            await provider.resolve("https://example.test/playlist", client)
+
+
+def test_ytdlp_maps_auth_and_rate_limit_failures_to_stable_categories():
+    assert isinstance(_mapped_error(Exception("Sign in to confirm")), NeedsAuth)
+    assert isinstance(_mapped_error(Exception("HTTP Error 429")), RateLimited)
 
 
 def test_source_provider_order_and_options_load_from_config(tmp_path):

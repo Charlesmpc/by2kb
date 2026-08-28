@@ -1,11 +1,11 @@
 ---
 name: video-to-knowledge
-description: Use by2kb to turn a Bilibili URL or a downloaded local audio/video attachment into a transcript, a short abstract, and long-form study notes.
+description: Use by2kb to turn a Bilibili/YouTube URL or a downloaded local audio/video attachment into a transcript, a short abstract, and long-form study notes.
 ---
 
 # Video to knowledge
 
-The installed Hermes plugin handles a bare Bilibili URL automatically. For a media
+The installed Hermes plugin handles a bare Bilibili or YouTube URL automatically. For a media
 attachment, first save the attachment to a private temporary path, then pass that
 exact path as the source argument. The workflow runs the deterministic transcription
 stage first, then uses the Hermes host model for
@@ -14,7 +14,7 @@ two bounded enrichment calls. Do not clone or inspect the by2kb repository.
 For an explicit/manual request:
 
 1. Check installation with `by2kb version`. If missing, ask the user to install
-   with `pipx install by2kb[asr-doubao]`.
+   with `pipx install by2kb[asr-doubao,youtube]` when YouTube is required.
 2. If configuration is missing, run `by2kb init` and let the user provide TOS and
    Doubao ASR credentials. Select `agent` for enrichment.
 3. Run `by2kb ingest <URL_OR_LOCAL_PATH> --enricher external_agent --json`.

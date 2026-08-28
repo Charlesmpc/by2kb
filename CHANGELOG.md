@@ -4,6 +4,8 @@
 
 - Add a configurable source-provider registry, adapt native Bilibili ingestion to the
   shared contract, and add an optional yt-dlp transcript/audio provider.
+- Complete the YouTube URL journey with caption-first ingestion, configured ASR
+  fallback, stable identity/provenance, and Hermes interception.
 - Add a pluggable ASR provider registry with deterministic explicit selection and
   ordered `auto` fallback.
 - Add optional local `faster-whisper` transcription with timestamped segments,
