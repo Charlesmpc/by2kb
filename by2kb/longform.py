@@ -288,6 +288,8 @@ class LongFormEnrichmentPipeline:
         cache_hits = 0
         cache_misses = 0
         for chunk in plan.chunks:
+            if request.cancel_check:
+                request.cancel_check()
             content = _chunk_text(request.normalized, chunk)
             key = _cache_key(
                 stage="chunk",
@@ -344,6 +346,8 @@ class LongFormEnrichmentPipeline:
         while len(nodes) > 1:
             next_nodes: list[_SummaryNode] = []
             for ordinal, group in enumerate(self._groups(nodes)):
+                if request.cancel_check:
+                    request.cancel_check()
                 if len(group) == 1:
                     next_nodes.append(group[0])
                     continue

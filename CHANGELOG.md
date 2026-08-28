@@ -16,6 +16,8 @@
   recursively reduces grounded notes, and records a public hierarchy trace.
 - Add a staged Agent enrichment provider using bounded `next`/`submit` operations,
   allowing Hermes subscription-authenticated runtimes to execute the shared plan.
+- Add a versioned Agent task-control protocol with stable status snapshots, bounded
+  waits, cooperative cancellation, and checkpoint-aware retry.
 - Persist the selected ASR provider, model, and runtime provenance in source and
   transcript artifacts.
 

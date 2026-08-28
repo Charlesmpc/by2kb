@@ -123,6 +123,11 @@ def _run_staged_enrichment(ctx, job_id):
         runtime_version,
     ]
     for _operation_count in range(512):
+        snapshot = _run_by2kb(["status", job_id, "--json"])
+        if snapshot.get("terminal") and snapshot.get("state") != "completed":
+            raise RuntimeError(
+                snapshot.get("message") or f"by2kb job {snapshot.get('state')}"
+            )
         step = _run_by2kb(
             ["enrichment", "next", job_id, *identity, "--json"]
         )

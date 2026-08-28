@@ -295,6 +295,8 @@ def _load_external_request(store: JobStore, config: Config, job_id: str):
     task = store.get_enrichment_task(job_id)
     if job is None or task is None:
         raise ConfigError(f"external enrichment task not found: {job_id}")
+    if job.cancel_requested or job.status == JobStatus.CANCELLED:
+        raise ConfigError(f"external enrichment job is cancelled: {job_id}")
     if task["executor"] != "external_agent":
         raise ConfigError(f"job does not use external agent enrichment: {job_id}")
     artifacts = _artifact_map(store, job_id)

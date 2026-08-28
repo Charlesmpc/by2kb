@@ -12,7 +12,8 @@ Implemented in `by2kb` today:
 - `--re-enrich`, which regenerates both outputs from stored transcript artifacts by
   calling the configured LLM API directly;
 - packaged default enrichment profiles;
-- the durable `external_agent` executor and `claim|complete|fail` protocol;
+- the durable `external_agent` executor, staged `next|submit` enrichment protocol,
+  and versioned task controls;
 - a bundled Hermes plugin with an authorized-user URL hook and host-owned LLM calls;
 - a bundled Hermes Skill for natural-language/manual invocation;
 - guided `by2kb init`, read-only `by2kb doctor`, and `by2kb agent install hermes`.
@@ -36,8 +37,8 @@ resolve URL/path → audio → ASR → normalize → raw artifacts
                          executor=api   executor=external_agent
                                 │           │
                          by2kb calls    persist pending work;
-                         configured     an agent host claims it
-                         LLM API        and submits the result
+                         configured     an agent host executes
+                         LLM API        bounded operations
                                 │           │
                                 └─────┬─────┘
                                       ▼
@@ -105,20 +106,26 @@ class EnrichmentExecutor(Protocol):
 and returns `DeferredEnrichment`; it does not open Hermes, Codex, Telegram, or another
 agent process.
 
-Target CLI contract:
+Recommended CLI contract:
 
 ```text
 by2kb ingest <url> --enricher external_agent --json
-by2kb enrichment claim <job-id> --json
-by2kb enrichment complete <job-id> \
-  --abstract-file <short-output.md> \
-  --study-file <long-output.md>
+by2kb enrichment next <job-id> \
+  --provider <host> --model <model> --runtime-version <version> --json
+by2kb enrichment submit <job-id> \
+  --operation-id <operation-id> --output-file <response.md> \
+  --provider <host> --model <model> --runtime-version <version> --json
 by2kb enrichment fail <job-id> --retryable --message <message>
 ```
 
-`complete` is the single trusted publication path. It verifies that the job is waiting
-for enrichment, validates both files, adds provenance, publishes them through the
-configured sink, records hashes, and marks the job complete.
+The host repeats `next` and `submit` until `next` returns `completed`. Each operation
+contains a bounded prompt and input, while by2kb retains planning, caching, validation,
+provenance, and publication. The earlier `claim`/`complete` commands remain available
+for compatibility, but bypass staged long-form planning and are not recommended for
+new adapters.
+
+Use `by2kb status|wait|cancel|retry` for lifecycle control. These commands return one
+versioned JSON envelope and are documented in [Agent task control](task-control.md).
 
 ## CLI first; MCP optional
 
@@ -157,17 +164,19 @@ existing Hermes extension surfaces:
    `{"action": "skip"}` so the URL does not also enter the model.
 3. The subprocess invokes `by2kb ingest <url> --enricher external_agent --json` using an
    argument vector with `shell=False`.
-4. Once transcription is ready, the plugin performs enrichment using one of the two
-   host strategies below.
-5. It calls `by2kb enrichment complete`, then reports the short abstract and artifact
-   paths to the original Telegram conversation.
+4. Once transcription is ready, the plugin checks the task snapshot, requests one
+   bounded operation with `enrichment next`, calls the host model, and returns its
+   response with `enrichment submit`.
+5. It repeats until by2kb validates, publishes, and completes both outputs, then
+   reports the short abstract and artifact paths to the original conversation.
 
 ### Recommended Hermes strategy: host LLM calls
 
-The plugin calls `ctx.llm.complete()` twice, supplying the packaged abstract and study
-profiles plus the transcript. This borrows the model and authentication already
-configured in Hermes, while keeping execution deterministic and avoiding a nested
-agent tool loop. No `BY2KB_LLM_API_KEY` is needed.
+The plugin calls `ctx.llm.complete()` for each bounded operation supplied by by2kb.
+This borrows the model and authentication already configured in Hermes, while keeping
+execution deterministic and avoiding a nested agent tool loop. Chunking, recursive
+reduction, and final abstract/study Skills remain controlled and cached by by2kb. No
+`BY2KB_LLM_API_KEY` is needed.
 
 This mode uses the Hermes model but not the full conversation memory or arbitrary agent
 tools. It is the default because summary generation is a bounded transformation.
@@ -208,7 +217,8 @@ path; the skill supplies judgment and instructions when natural language is invo
 Codex can use the same CLI protocol through a small plugin containing an agent skill;
 MCP is still optional. Unlike a messaging gateway plugin, a Codex plugin should not be
 assumed to own a deterministic pre-dispatch hook for every user message. The shared
-contract is `ingest/claim/complete`, not a host-specific callback.
+contract is `ingest`, staged `next/submit`, and versioned task control, not a
+host-specific callback.
 
 Every new host adapter remains thin:
 

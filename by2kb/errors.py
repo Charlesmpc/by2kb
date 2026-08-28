@@ -58,5 +58,9 @@ class TranscriptQualityError(By2kbError):
     """The raw transcript is preserved, but enrichment must not run."""
 
 
+class JobCancelled(By2kbError):
+    """Cooperative cancellation was observed between pipeline stages."""
+
+
 def category_of(error: By2kbError) -> str:
     return type(error).__name__
