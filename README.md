@@ -73,6 +73,8 @@ See [Agent task control](docs/task-control.md) for the versioned
 `status`/`wait`/`cancel`/`retry` protocol and checkpoint-aware retries.
 See [ASR providers](docs/asr-providers.md) for optional local faster-whisper setup,
 explicit model installation, and the existing cloud Doubao path.
+See [Source providers](docs/source-providers.md) for configurable provider priority,
+optional yt-dlp installation, caption policy, audio fallback, and cookie handling.
 See [Local media](docs/local-media.md) for supported formats, content-addressed
 deduplication, ffmpeg requirements, and attachment handling.
 See [Diagnostics](docs/doctor.md) for every read-only check and the Agent-facing JSON schema.

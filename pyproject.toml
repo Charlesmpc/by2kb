@@ -14,6 +14,8 @@ dependencies = [
 [project.optional-dependencies]
 asr-doubao = ["boto3>=1.34"]
 asr-whisper = ["faster-whisper>=1.2.1,<2"]
+source-ytdlp = ["yt-dlp>=2025.1.15"]
+youtube = ["yt-dlp>=2025.1.15"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 
 [project.scripts]

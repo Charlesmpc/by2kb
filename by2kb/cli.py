@@ -208,6 +208,17 @@ def init_config(
     library_root = Path(
         typer.prompt("Knowledge-base folder", default=str(home / "library"))
     ).expanduser()
+    source_mode = typer.prompt(
+        "URL sources (bilibili or bilibili+youtube)", default="bilibili"
+    )
+    source_providers = {
+        "bilibili": ("bilibili_native",),
+        "bilibili+youtube": ("bilibili_native", "yt_dlp"),
+    }.get(source_mode)
+    if source_providers is None:
+        raise typer.BadParameter(
+            "URL sources must be bilibili or bilibili+youtube"
+        )
     asr_mode = typer.prompt(
         "ASR provider (local-whisper or doubao)", default="local-whisper"
     )
@@ -276,6 +287,7 @@ def init_config(
 
     settings = InitSettings(
         library_root=library_root,
+        source_providers=source_providers,
         asr_provider=asr_provider,
         enrichment_executor=executor,
         tos_access_key=tos_access_key,
@@ -300,6 +312,9 @@ def init_config(
         raise typer.Exit(exc.exit_code) from exc
     typer.echo(f"Configuration: {config_path}")
     typer.echo(f"Secrets: {env_path}")
+    if "yt_dlp" in source_providers:
+        typer.echo("Next: install the optional YouTube source provider.")
+        typer.echo("  pipx inject by2kb 'yt-dlp>=2025.1.15'")
     if asr_provider == "faster_whisper":
         typer.echo("Next: install the optional faster-whisper runtime and model.")
         typer.echo("  pipx inject by2kb 'faster-whisper>=1.2.1,<2'")
