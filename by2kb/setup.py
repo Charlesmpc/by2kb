@@ -6,6 +6,7 @@ from pathlib import Path
 
 from by2kb.config import DEFAULT_LLM_BASE_URL
 from by2kb.errors import ConfigError
+from by2kb.providers.asr_registry import build_default_asr_registry
 
 
 @dataclass(frozen=True)
@@ -27,8 +28,7 @@ class InitSettings:
     llm_base_url: str = DEFAULT_LLM_BASE_URL
 
     def validate(self) -> None:
-        if self.asr_provider != "doubao_auc":
-            raise ConfigError(f"unsupported ASR provider: {self.asr_provider}")
+        build_default_asr_registry().resolve_name(self.asr_provider)
         required = {
             "VOLC_ACCESS_KEY_ID": self.tos_access_key,
             "VOLC_SECRET_ACCESS_KEY": self.tos_secret_key,

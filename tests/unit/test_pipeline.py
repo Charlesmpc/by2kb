@@ -37,6 +37,7 @@ def test_from_asr_result_text_only_becomes_single_segment(identity):
     assert normalized.source.duration_ms == 166000
     assert normalized.transcript.kind == "asr"
     assert normalized.transcript.provider == "doubao_auc"
+    assert normalized.transcript.model == "bigmodel"
     assert len(normalized.transcript.segments) == 1
     assert normalized.transcript.segments[0].text == "你好，世界。"
     assert normalized.transcript.segments[0].duration_ms == 166000
@@ -99,6 +100,7 @@ def test_render_raw_md_frontmatter_and_asr_note(identity):
     assert "video_id: BV1jmbD65EP2" in rendered
     assert 'title: "测试:标题"' in rendered
     assert "transcript_kind: asr" in rendered
+    assert "transcript_model: bigmodel" in rendered
     assert "ASR output without per-segment timing" in rendered
     assert "正文内容" in rendered
 

@@ -44,6 +44,7 @@ def render_raw_md(normalized: NormalizedTranscript) -> str:
             "duration_ms": source.duration_ms if source.duration_ms is not None else "",
             "language": transcript.language or "",
             "transcript_provider": transcript.provider,
+            "transcript_model": transcript.model or "",
             "transcript_kind": transcript.kind,
             "fetched_at": transcript.fetched_at,
         }
