@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     last_error_category TEXT,
     error_message TEXT,
     created_at TEXT NOT NULL,
-    updated_at TEXT
+    updated_at TEXT,
+    cancel_requested INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS artifacts (
     job_id TEXT NOT NULL,
@@ -51,10 +52,22 @@ class JobStore:
         self._conn = sqlite3.connect(str(db_path))
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._ensure_job_columns()
         self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
+
+    def _ensure_job_columns(self) -> None:
+        columns = {
+            row["name"]
+            for row in self._conn.execute("PRAGMA table_info(jobs)").fetchall()
+        }
+        if "cancel_requested" not in columns:
+            self._conn.execute(
+                "ALTER TABLE jobs ADD COLUMN cancel_requested "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
 
     def create_job(self, job: Job) -> None:
         self._conn.execute(
@@ -93,6 +106,26 @@ class JobStore:
             (status.value, error_category, error_message, utcnow_iso(), job_id),
         )
         self._conn.commit()
+
+    def request_cancel(self, job_id: str) -> None:
+        self._conn.execute(
+            "UPDATE jobs SET cancel_requested = 1, updated_at = ? WHERE id = ?",
+            (utcnow_iso(), job_id),
+        )
+        self._conn.commit()
+
+    def clear_cancel(self, job_id: str) -> None:
+        self._conn.execute(
+            "UPDATE jobs SET cancel_requested = 0, updated_at = ? WHERE id = ?",
+            (utcnow_iso(), job_id),
+        )
+        self._conn.commit()
+
+    def cancel_requested(self, job_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT cancel_requested FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        return bool(row and row["cancel_requested"])
 
     def get_job(self, job_id: str) -> Job | None:
         row = self._conn.execute(
@@ -205,4 +238,5 @@ def _row_to_job(row: sqlite3.Row) -> Job:
         error_message=row["error_message"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        cancel_requested=bool(row["cancel_requested"]),
     )

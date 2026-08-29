@@ -67,8 +67,10 @@ by2kb ingest ./meeting.mp3
 by2kb ingest ./lecture.mp4
 ```
 
-See [Agent integration](docs/agent-integration.md) for the reusable
-`ingest → claim → complete/fail` contract used by other agent hosts.
+See [Agent integration](docs/agent-integration.md) for the reusable staged
+`ingest → next → submit` enrichment contract used by other agent hosts.
+See [Agent task control](docs/task-control.md) for the versioned
+`status`/`wait`/`cancel`/`retry` protocol and checkpoint-aware retries.
 See [ASR providers](docs/asr-providers.md) for optional local faster-whisper setup,
 explicit model installation, and the existing cloud Doubao path.
 See [Local media](docs/local-media.md) for supported formats, content-addressed
@@ -163,6 +165,15 @@ From the user's point of view:
      will learn, and whether it is worth going deeper.
    - **Updated / study notes** — a long, structured learning guide with a knowledge
      map, guided walkthrough, claims and evidence, concepts, questions, and actions.
+
+Agent hosts can expose progress and lifecycle controls without parsing logs:
+
+```bash
+by2kb status <job-id> --json
+by2kb wait <job-id> --timeout 30 --json
+by2kb cancel <job-id> --json
+by2kb retry <job-id> --json
+```
 
 ## Output model
 

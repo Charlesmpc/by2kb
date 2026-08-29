@@ -19,7 +19,12 @@ from by2kb.jobs.enrichment_service import (
     submit_external_enrichment_operation,
 )
 from by2kb.jobs.runner import ingest_source
-from by2kb.jobs.store import JobStore
+from by2kb.jobs.task_control import (
+    cancel_task,
+    retry_task,
+    task_status,
+    wait_for_task,
+)
 from by2kb.providers.asr_faster_whisper import (
     FasterWhisperConfig,
     faster_whisper_status,
@@ -90,29 +95,54 @@ def status(
 ) -> None:
     _configure_stdio()
     config = load_config()
-    store = JobStore(config.db_path)
     try:
-        job = store.get_job(job_id)
-        if job is None:
-            typer.echo(f"job not found: {job_id}", err=True)
-            raise typer.Exit(1)
-        payload = {
-            "job_id": job.id,
-            "platform": job.platform,
-            "video_id": job.video_id,
-            "status": job.status.value,
-            "last_error_category": job.last_error_category,
-            "error_message": job.error_message,
-            "artifacts": store.artifacts(job.id),
-        }
-        if json_out:
-            typer.echo(json.dumps(payload, ensure_ascii=False))
-        else:
-            typer.echo(f"{job.platform}/{job.video_id} — {job.status.value}")
-            for artifact in payload["artifacts"]:
-                typer.echo(f"  {artifact['kind']}: {artifact['path']}")
-    finally:
-        store.close()
+        payload = task_status(config, job_id)
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    _emit_task_payload(payload, json_out)
+
+
+@app.command("wait")
+def wait(
+    job_id: str = typer.Argument(...),
+    timeout: float = typer.Option(60.0, "--timeout"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Wait for one state change, terminal state, or bounded timeout."""
+    _configure_stdio()
+    try:
+        payload = wait_for_task(load_config(), job_id, timeout_s=timeout)
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    _emit_task_payload(payload, json_out)
+
+
+@app.command("cancel")
+def cancel(
+    job_id: str = typer.Argument(...),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Request cooperative cancellation; repeated calls are idempotent."""
+    _configure_stdio()
+    try:
+        payload = cancel_task(load_config(), job_id)
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    _emit_task_payload(payload, json_out)
+
+
+@app.command("retry")
+def retry(
+    job_id: str = typer.Argument(...),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Retry a documented recoverable state and reuse completed checkpoints."""
+    _configure_stdio()
+    try:
+        payload = asyncio.run(retry_task(load_config(), job_id))
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    _emit_task_payload(payload, json_out)
 
 
 @app.command()
@@ -451,6 +481,21 @@ def agent_install(
         raise typer.Exit(exc.exit_code) from exc
     typer.echo(f"Hermes plugin installed: {target}")
     typer.echo("Restart the Hermes gateway to activate it.")
+
+
+def _emit_task_payload(payload: dict[str, object], json_out: bool) -> None:
+    if json_out:
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+        return
+    typer.echo(
+        f"{payload['job_id']} — {payload['state']} "
+        f"({payload['stage']}, {float(payload['progress']) * 100:.0f}%)"
+    )
+    typer.echo(str(payload["message"]))
+    if payload.get("event") == "timeout":
+        typer.echo("Wait timed out; the job was not marked failed.")
+    for artifact in payload.get("artifacts", []):
+        typer.echo(f"  {artifact['kind']}: {artifact['path']}")
 
 
 def _command_error(exc: By2kbError, json_out: bool) -> None:

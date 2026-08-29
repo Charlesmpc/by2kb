@@ -20,6 +20,7 @@ from by2kb.errors import (
     By2kbError,
     ConfigError,
     DuplicateJob,
+    JobCancelled,
     TranscriptQualityError,
     UnsupportedUrl,
     category_of,
@@ -140,6 +141,18 @@ def _stored_artifacts(store: JobStore, job_id: str) -> dict[str, str]:
     return {item["kind"]: item["path"] for item in store.artifacts(job_id)}
 
 
+def _raise_if_cancelled(store: JobStore, job: Job) -> None:
+    if not store.cancel_requested(job.id):
+        return
+    store.update_status(
+        job.id,
+        JobStatus.CANCELLED,
+        error_category="JobCancelled",
+        error_message="cancellation requested",
+    )
+    raise JobCancelled("job cancelled by request")
+
+
 async def _run_enrichment(
     *,
     store: JobStore,
@@ -157,6 +170,7 @@ async def _run_enrichment(
         normalized=normalized,
         raw_path=raw_path,
         staging=staging,
+        cancel_check=lambda: _raise_if_cancelled(store, job),
     )
     abstract_profile = request.abstract_skill.name
     study_profile = request.study_skill.name
@@ -186,6 +200,7 @@ async def _run_enrichment(
         )
 
     submission = await executor.submit(request)
+    _raise_if_cancelled(store, job)
     if submission.deferred:
         store.update_status(job.id, JobStatus.ENRICHMENT_PENDING)
         artifacts = _stored_artifacts(store, job.id)
@@ -287,6 +302,7 @@ async def ingest_url(
         job: Job,
     ) -> PreparedMedia:
         info = await bilibili.fetch_video_info(client, identity.video_id)
+        _raise_if_cancelled(store, job)
         store.update_status(job.id, JobStatus.CAPTURING_MEDIA)
         media = bilibili.BilibiliMediaProvider(client, WbiKeyCache(client), work_dir)
         audio = await media.fetch_audio(identity, fetch_options)
@@ -307,6 +323,8 @@ async def ingest_url(
         enricher=enricher,
         requested_by=requested_by,
         asr_registry=asr_registry,
+        source_reference=url,
+        source_kind="url",
     )
 
 
@@ -356,6 +374,8 @@ async def ingest_local_file(
         enricher=enricher,
         requested_by=requested_by,
         asr_registry=asr_registry,
+        source_reference=str(Path(source).expanduser().resolve()),
+        source_kind="local_file",
     )
 
 
@@ -369,6 +389,8 @@ async def _ingest(
     enricher: str | None = None,
     requested_by: str | None = None,
     asr_registry: AsrProviderRegistry | None = None,
+    source_reference: str | None = None,
+    source_kind: str | None = None,
 ) -> IngestOutcome:
     store = JobStore(config.db_path)
     job: Job | None = None
@@ -454,6 +476,10 @@ async def _ingest(
                     video_id=identity.video_id,
                     requested_by=requested_by,
                     destination=config.destination,
+                    options={
+                        "source": source_reference,
+                        "source_kind": source_kind,
+                    },
                 )
                 if existing is None:
                     store.create_job(job)
@@ -464,15 +490,18 @@ async def _ingest(
             asr = registry.create(config.asr_provider, client)
 
             store.update_status(job.id, JobStatus.RESOLVING)
+            _raise_if_cancelled(store, job)
             prepared = await prepare_media(
                 client, identity, work_dir, options, store, job
             )
+            _raise_if_cancelled(store, job)
 
             store.update_status(job.id, JobStatus.TRANSCRIBING)
             asr_timeout = max(150.0, (prepared.duration_s or 0) * 1.5)
             asr_result = await asr.transcribe(
                 prepared.audio, AsrOptions(timeout_s=asr_timeout)
             )
+            _raise_if_cancelled(store, job)
 
             store.update_status(job.id, JobStatus.NORMALIZING)
             normalized = from_asr_result(
@@ -514,6 +543,7 @@ async def _ingest(
                     content_hash(path),
                 )
             store.update_status(job.id, JobStatus.RAW_PUBLISHED)
+            _raise_if_cancelled(store, job)
             if quality.status == "fail":
                 raise TranscriptQualityError(
                     "transcript is unusable for enrichment: "

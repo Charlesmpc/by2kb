@@ -47,6 +47,7 @@ STATUS_FOR_ERROR = {
     "ConfigError": JobStatus.FAILED_TERMINAL,
     "UnsupportedUrl": JobStatus.FAILED_TERMINAL,
     "TranscriptQualityError": JobStatus.FAILED_TERMINAL,
+    "JobCancelled": JobStatus.CANCELLED,
 }
 
 
@@ -68,3 +69,4 @@ class Job:
     error_message: str | None = None
     created_at: str = field(default_factory=utcnow_iso)
     updated_at: str | None = None
+    cancel_requested: bool = False

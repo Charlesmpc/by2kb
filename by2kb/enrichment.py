@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
 from by2kb.config import Config, LongFormConfig
@@ -33,6 +34,7 @@ class EnrichmentRequest:
     study_skill: Skill
     long_form: LongFormConfig
     cache_root: Path
+    cancel_check: Callable[[], None] | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,8 @@ class LlmEnrichmentProvider:
         prepared = await pipeline.run(request, self._llm)
         generated: dict[str, Path] = {}
         for kind, filename_kind, artifact_type, skill in _outputs(request):
+            if request.cancel_check:
+                request.cancel_check()
             body = await run_skill(
                 skill,
                 request.normalized,
@@ -121,6 +125,7 @@ def create_enrichment_request(
     staging: Path,
     abstract_profile: str | None = None,
     study_profile: str | None = None,
+    cancel_check: Callable[[], None] | None = None,
 ) -> EnrichmentRequest:
     skill_dirs = config.skills_dirs or [config.home / "skills"]
     abstract_name = abstract_profile or config.abstract_skill
@@ -148,6 +153,7 @@ def create_enrichment_request(
         study_skill=study_skill,
         long_form=config.long_form,
         cache_root=config.home / "enrichment-cache",
+        cancel_check=cancel_check,
     )
 
 

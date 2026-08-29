@@ -172,6 +172,8 @@ def test_hermes_adapter_uses_bounded_next_submit_contract(tmp_path, monkeypatch)
 
     def run(arguments, **_kwargs):
         calls.append(arguments)
+        if arguments[0] == "status":
+            return {"state": "enriching", "terminal": False}
         if arguments[1] == "next" and len(
             [call for call in calls if call[1] == "next"]
         ) == 1:
@@ -195,5 +197,11 @@ def test_hermes_adapter_uses_bounded_next_submit_contract(tmp_path, monkeypatch)
     result = _run_staged_enrichment(SimpleNamespace(llm=HostLlm()), "job-1")
 
     assert result["status"] == "completed"
-    assert [call[1] for call in calls] == ["next", "submit", "next"]
-    assert all(call[1] != "claim" for call in calls)
+    assert [call[0] for call in calls] == [
+        "status",
+        "enrichment",
+        "enrichment",
+        "status",
+        "enrichment",
+    ]
+    assert all("claim" not in call for call in calls)
