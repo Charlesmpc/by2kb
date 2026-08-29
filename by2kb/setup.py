@@ -12,6 +12,7 @@ from by2kb.providers.asr_registry import build_default_asr_registry
 @dataclass(frozen=True)
 class InitSettings:
     library_root: Path
+    source_providers: tuple[str, ...] = ("bilibili_native",)
     asr_provider: str = "doubao_auc"
     enrichment_executor: str = "external_agent"
     tos_access_key: str = ""
@@ -32,6 +33,13 @@ class InitSettings:
 
     def validate(self) -> None:
         selected_asr = build_default_asr_registry().resolve_name(self.asr_provider)
+        unknown_sources = set(self.source_providers) - {"bilibili_native", "yt_dlp"}
+        if unknown_sources:
+            raise ConfigError(
+                "unsupported source provider: " + sorted(unknown_sources)[0]
+            )
+        if not self.source_providers:
+            raise ConfigError("at least one source provider is required")
         missing: list[str] = []
         if selected_asr == "doubao_auc":
             required = {
@@ -92,6 +100,9 @@ def render_config_toml(settings: InitSettings) -> str:
         'destination = "filesystem:library"',
         'preferred_languages = ["zh-CN", "zh", "en"]',
         "",
+        "[sources]",
+        "providers = " + json.dumps(list(settings.source_providers)),
+        "",
         "[asr]",
         f"provider = {json.dumps(settings.asr_provider)}",
     ]
@@ -101,6 +112,15 @@ def render_config_toml(settings: InitSettings) -> str:
                 f"model = {json.dumps(settings.whisper_model)}",
                 f"device = {json.dumps(settings.whisper_device)}",
                 f"compute_type = {json.dumps(settings.whisper_compute_type)}",
+            ]
+        )
+    if "yt_dlp" in settings.source_providers:
+        lines.extend(
+            [
+                "",
+                "[sources.yt_dlp]",
+                'subtitle_policy = "prefer"',
+                'playlist_policy = "reject"',
             ]
         )
     lines.extend(

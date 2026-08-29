@@ -15,6 +15,7 @@ from by2kb.providers.asr_faster_whisper import (
     faster_whisper_status,
 )
 from by2kb.providers.asr_registry import build_default_asr_registry
+from by2kb.providers.yt_dlp_source import YtDlpSourceConfig
 
 SCHEMA_VERSION = 1
 
@@ -34,6 +35,7 @@ class DoctorCheck:
 class DoctorReport:
     provider: str
     enrichment_executor: str
+    source_providers: tuple[str, ...]
     checks: tuple[DoctorCheck, ...]
 
     @property
@@ -45,6 +47,7 @@ class DoctorReport:
             "schema_version": SCHEMA_VERSION,
             "ok": self.ok,
             "provider": self.provider,
+            "source_providers": list(self.source_providers),
             "enrichment_executor": self.enrichment_executor,
             "checks": [check.to_dict() for check in self.checks],
         }
@@ -62,6 +65,7 @@ def run_doctor(config: Config, *, provider: str | None = None) -> DoctorReport:
         _directory_check("home_writable", config.home, "by2kb home directory"),
         _database_check(config.db_path),
     ]
+    checks.extend(_source_checks(config))
 
     requested = (provider or config.asr_provider).strip().lower()
     selected = _select_provider_for_diagnostics(config, requested)
@@ -70,8 +74,73 @@ def run_doctor(config: Config, *, provider: str | None = None) -> DoctorReport:
     return DoctorReport(
         provider=selected,
         enrichment_executor=config.resolved_enrichment_executor(),
+        source_providers=tuple(config.sources.providers),
         checks=tuple(checks),
     )
+
+
+def _source_checks(config: Config) -> list[DoctorCheck]:
+    supported = {"bilibili_native", "yt_dlp"}
+    checks: list[DoctorCheck] = []
+    for name in config.sources.providers:
+        normalized = name.strip().lower()
+        if normalized not in supported:
+            checks.append(
+                DoctorCheck(
+                    f"source_{normalized or 'empty'}",
+                    False,
+                    f"Unknown source provider: {name}",
+                    "Use bilibili_native or yt_dlp in [sources].providers.",
+                )
+            )
+            continue
+        if normalized == "bilibili_native":
+            checks.append(
+                DoctorCheck(
+                    "source_bilibili_native",
+                    True,
+                    "Native Bilibili source provider is available",
+                )
+            )
+            continue
+        try:
+            source_config = YtDlpSourceConfig.from_mapping(
+                config.sources.options.get("yt_dlp", {})
+            )
+        except ConfigError as exc:
+            checks.append(
+                DoctorCheck(
+                    "source_yt_dlp_config",
+                    False,
+                    "yt-dlp source configuration is invalid",
+                    str(exc),
+                )
+            )
+            continue
+        installed = find_spec("yt_dlp") is not None
+        checks.append(
+            DoctorCheck(
+                "source_yt_dlp_dependency",
+                installed,
+                "yt-dlp dependency is installed" if installed else "yt-dlp dependency is missing",
+                None
+                if installed
+                else "Run: pipx inject by2kb 'yt-dlp>=2025.1.15'",
+            )
+        )
+        if source_config.cookie_file:
+            readable = source_config.cookie_file.is_file() and os.access(
+                source_config.cookie_file, os.R_OK
+            )
+            checks.append(
+                DoctorCheck(
+                    "source_yt_dlp_cookies",
+                    readable,
+                    "yt-dlp cookie file is readable" if readable else "yt-dlp cookie file is not readable",
+                    None if readable else "Correct or remove [sources.yt_dlp].cookie_file.",
+                )
+            )
+    return checks
 
 
 def _select_provider_for_diagnostics(config: Config, requested: str) -> str:

@@ -22,21 +22,23 @@ from by2kb.errors import (
     DuplicateJob,
     JobCancelled,
     TranscriptQualityError,
-    UnsupportedUrl,
     category_of,
 )
 from by2kb.jobs.model import STATUS_FOR_ERROR, Job, JobStatus
 from by2kb.jobs.store import JobStore
 from by2kb.normalize import NormalizedTranscript, from_asr_result
-from by2kb.providers import bilibili
+from by2kb.providers import bilibili  # compatibility surface for existing integrations
 from by2kb.providers.asr import AsrOptions
 from by2kb.providers.asr_registry import AsrProviderRegistry, build_default_asr_registry
-from by2kb.providers.base import FetchOptions, LocalAudio, SourceIdentity
-from by2kb.providers.bilibili_wbi import WbiKeyCache
+from by2kb.providers.base import FetchOptions, PreparedSource, SourceIdentity, SourceProvider
 from by2kb.providers.local_media import (
     LocalMediaInfo,
     inspect_local_media,
     prepare_local_audio,
+)
+from by2kb.providers.source_registry import (
+    SourceProviderRegistry,
+    build_default_source_registry,
 )
 from by2kb.quality import assess_transcript
 from by2kb.sinks.filesystem import FilesystemSink
@@ -69,19 +71,10 @@ class IngestOutcome:
         }
 
 
-@dataclass(frozen=True)
-class PreparedMedia:
-    title: str
-    author: str
-    duration_s: float | None
-    audio: LocalAudio
-    source_payload: dict[str, object]
-
-
 ResolveSource = Callable[[httpx.AsyncClient], Awaitable[SourceIdentity]]
 PrepareMedia = Callable[
     [httpx.AsyncClient, SourceIdentity, Path, FetchOptions, JobStore, Job],
-    Awaitable[PreparedMedia],
+    Awaitable[PreparedSource],
 ]
 
 
@@ -104,19 +97,18 @@ async def build_summary_artifacts(
     return submission.artifacts
 
 
-async def resolve_url(url: str, client: httpx.AsyncClient):
-    candidate = (url or "").strip()
-    lowered = candidate.lower()
-    if "b23.tv" in lowered:
-        target = await bilibili.expand_short_url(client, candidate)
-        return bilibili.resolve(target)
-    if "bilibili.com" in lowered or candidate.startswith("BV"):
-        return bilibili.resolve(candidate)
-    if "youtube.com" in lowered or "youtu.be" in lowered:
-        raise UnsupportedUrl(
-            "YouTube support is not implemented yet (Milestone 1 is Bilibili-first)"
-        )
-    raise UnsupportedUrl(f"unsupported URL: {url}")
+async def resolve_url(
+    url: str,
+    client: httpx.AsyncClient,
+    *,
+    source_registry: SourceProviderRegistry | None = None,
+    provider_order: list[str] | None = None,
+):
+    registry = source_registry or build_default_source_registry()
+    provider = registry.select(
+        (url or "").strip(), provider_order or ["bilibili_native"]
+    )
+    return await provider.resolve((url or "").strip(), client)
 
 
 def _failure(store: JobStore, job: Job | None, error: By2kbError) -> IngestOutcome:
@@ -289,9 +281,15 @@ async def ingest_url(
     enricher: str | None = None,
     requested_by: str | None = None,
     asr_registry: AsrProviderRegistry | None = None,
+    source_registry: SourceProviderRegistry | None = None,
 ) -> IngestOutcome:
+    sources = source_registry or build_default_source_registry(
+        source_options=config.sources.options
+    )
+    provider: SourceProvider = sources.select(url, config.sources.providers)
+
     async def resolver(client: httpx.AsyncClient) -> SourceIdentity:
-        return await resolve_url(url, client)
+        return await provider.resolve(url, client)
 
     async def prepare(
         client: httpx.AsyncClient,
@@ -300,18 +298,18 @@ async def ingest_url(
         fetch_options: FetchOptions,
         store: JobStore,
         job: Job,
-    ) -> PreparedMedia:
-        info = await bilibili.fetch_video_info(client, identity.video_id)
-        _raise_if_cancelled(store, job)
-        store.update_status(job.id, JobStatus.CAPTURING_MEDIA)
-        media = bilibili.BilibiliMediaProvider(client, WbiKeyCache(client), work_dir)
-        audio = await media.fetch_audio(identity, fetch_options)
-        return PreparedMedia(
-            title=info.title,
-            author=info.author,
-            duration_s=info.duration_s,
-            audio=audio,
-            source_payload={"view": info.model_dump()},
+    ) -> PreparedSource:
+        stages = {
+            "fetching_transcript": JobStatus.FETCHING_TRANSCRIPT,
+            "capturing_media": JobStatus.CAPTURING_MEDIA,
+        }
+        return await provider.prepare(
+            identity,
+            client,
+            work_dir,
+            fetch_options,
+            set_stage=lambda stage: store.update_status(job.id, stages[stage]),
+            cancel_check=lambda: _raise_if_cancelled(store, job),
         )
 
     return await _ingest(
@@ -352,12 +350,12 @@ async def ingest_local_file(
         _fetch_options: FetchOptions,
         store: JobStore,
         job: Job,
-    ) -> PreparedMedia:
+    ) -> PreparedSource:
         if media_info is None:  # pragma: no cover - resolver contract guard
             raise ConfigError("local media was not resolved")
         store.update_status(job.id, JobStatus.CAPTURING_MEDIA)
         audio, duration_s = await prepare_local_audio(media_info, work_dir)
-        return PreparedMedia(
+        return PreparedSource(
             title=Path(media_info.original_filename).stem,
             author="Local media",
             duration_s=duration_s,
@@ -487,7 +485,6 @@ async def _ingest(
             options = FetchOptions(preferred_languages=config.preferred_languages)
             work_dir = config.home / "jobs" / job.id
             work_dir.mkdir(parents=True, exist_ok=True)
-            asr = registry.create(config.asr_provider, client)
 
             store.update_status(job.id, JobStatus.RESOLVING)
             _raise_if_cancelled(store, job)
@@ -496,36 +493,50 @@ async def _ingest(
             )
             _raise_if_cancelled(store, job)
 
-            store.update_status(job.id, JobStatus.TRANSCRIBING)
-            asr_timeout = max(150.0, (prepared.duration_s or 0) * 1.5)
-            asr_result = await asr.transcribe(
-                prepared.audio, AsrOptions(timeout_s=asr_timeout)
-            )
-            _raise_if_cancelled(store, job)
-
             store.update_status(job.id, JobStatus.NORMALIZING)
-            normalized = from_asr_result(
-                identity,
-                title=prepared.title,
-                author=prepared.author,
-                duration_ms=(
-                    int(prepared.duration_s * 1000) if prepared.duration_s else None
-                ),
-                asr_result=asr_result,
-                fetched_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            )
+            source_payload = dict(prepared.source_payload)
+            if prepared.transcript is not None:
+                normalized = prepared.transcript
+                source_payload.update(
+                    {
+                        "transcript_provider": normalized.transcript.provider,
+                        "transcript_model": normalized.transcript.model,
+                    }
+                )
+            else:
+                if prepared.audio is None:  # pragma: no cover - typed contract guard
+                    raise ConfigError(
+                        "source provider returned neither transcript nor audio"
+                    )
+                store.update_status(job.id, JobStatus.TRANSCRIBING)
+                asr = registry.create(config.asr_provider, client)
+                asr_timeout = max(150.0, (prepared.duration_s or 0) * 1.5)
+                asr_result = await asr.transcribe(
+                    prepared.audio, AsrOptions(timeout_s=asr_timeout)
+                )
+                _raise_if_cancelled(store, job)
+                store.update_status(job.id, JobStatus.NORMALIZING)
+                normalized = from_asr_result(
+                    identity,
+                    title=prepared.title,
+                    author=prepared.author,
+                    duration_ms=(
+                        int(prepared.duration_s * 1000) if prepared.duration_s else None
+                    ),
+                    asr_result=asr_result,
+                    fetched_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                )
+                source_payload.update(
+                    {
+                        "asr_provider": asr_result.provider,
+                        "asr_model": asr_result.model,
+                        "asr_provenance": asr_result.provenance,
+                    }
+                )
             quality = assess_transcript(normalized)
             normalized.transcript.quality = quality
             staging = work_dir / "artifacts"
-            source_payload = dict(prepared.source_payload)
-            source_payload.update(
-                {
-                    "asr_provider": asr_result.provider,
-                    "asr_model": asr_result.model,
-                    "asr_provenance": asr_result.provenance,
-                    "transcript_quality": quality.model_dump(mode="json"),
-                }
-            )
+            source_payload["transcript_quality"] = quality.model_dump(mode="json")
             artifacts = write_artifacts(
                 staging, source_payload=source_payload, normalized=normalized
             )

@@ -30,6 +30,14 @@ class LongFormConfig:
     reduce_group_size: int = 4
 
 
+@dataclass(frozen=True)
+class SourceConfig:
+    providers: list[str] = field(
+        default_factory=lambda: ["bilibili_native"]
+    )
+    options: dict[str, dict[str, object]] = field(default_factory=dict)
+
+
 @dataclass
 class Config:
     home: Path
@@ -46,6 +54,7 @@ class Config:
     enrichment_executor: str = "auto"
     llm: LlmConfig = field(default_factory=LlmConfig)
     long_form: LongFormConfig = field(default_factory=LongFormConfig)
+    sources: SourceConfig = field(default_factory=SourceConfig)
 
     def resolved_enrichment_executor(self, override: str | None = None) -> str:
         executor = override or self.enrichment_executor
@@ -103,6 +112,9 @@ def load_config(home: Path | None = None) -> Config:
     enrichment_section = (
         data.get("enrichment", {}) if isinstance(data.get("enrichment"), dict) else {}
     )
+    sources_section = (
+        data.get("sources", {}) if isinstance(data.get("sources"), dict) else {}
+    )
     long_form_section = (
         enrichment_section.get("long_form", {})
         if isinstance(enrichment_section.get("long_form"), dict)
@@ -154,5 +166,24 @@ def load_config(home: Path | None = None) -> Config:
                 long_form_section.get("reduce_token_budget", 6_000)
             ),
             reduce_group_size=int(long_form_section.get("reduce_group_size", 4)),
+        ),
+        sources=SourceConfig(
+            providers=[
+                item.strip()
+                for item in str(
+                    os.environ.get(f"{ENV_PREFIX}SOURCE_PROVIDERS") or ""
+                ).split(",")
+                if item.strip()
+            ]
+            or list(
+                sources_section.get(
+                    "providers", ["bilibili_native"]
+                )
+            ),
+            options={
+                key: dict(value)
+                for key, value in sources_section.items()
+                if key != "providers" and isinstance(value, dict)
+            },
         ),
     )

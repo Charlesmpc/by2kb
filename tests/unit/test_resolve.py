@@ -79,7 +79,7 @@ async def test_short_link_transport_failure_is_retryable(make_redirect_client):
 
 
 async def test_youtube_url_is_unsupported():
-    with pytest.raises(UnsupportedUrl, match="YouTube"):
+    with pytest.raises(UnsupportedUrl, match="no configured source provider"):
         await resolve_url("https://youtu.be/l38ceFOWOAE", None)
 
 

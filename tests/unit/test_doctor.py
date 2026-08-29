@@ -6,7 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 from by2kb import cli
-from by2kb.config import Config
+from by2kb.config import Config, SourceConfig
 from by2kb.doctor import DoctorCheck, _directory_check, run_doctor
 
 
@@ -123,9 +123,36 @@ def test_doctor_json_cli_uses_stable_schema(tmp_path, monkeypatch):
     assert payload["ok"] is True
 
 
+def test_doctor_reports_missing_configured_ytdlp_dependency(tmp_path, monkeypatch):
+    _passing_system_checks(monkeypatch)
+    config = _config(tmp_path)
+    config.sources = SourceConfig(providers=["bilibili_native", "yt_dlp"])
+    monkeypatch.setattr(
+        "by2kb.doctor.faster_whisper_status",
+        lambda _config: {
+            "dependency_installed": True,
+            "model_installed": True,
+            "model": "large-v3-turbo",
+        },
+    )
+    monkeypatch.setattr(
+        "by2kb.doctor.find_spec",
+        lambda name: None if name == "yt_dlp" else object(),
+    )
+
+    report = run_doctor(config)
+    check = next(
+        item for item in report.checks if item.id == "source_yt_dlp_dependency"
+    )
+
+    assert report.source_providers == ("bilibili_native", "yt_dlp")
+    assert check.ok is False
+    assert "pipx inject" in check.remediation
+
+
 def test_interactive_init_supports_local_whisper(tmp_path):
     home = tmp_path / "local-home"
-    answers = "\n\n\n\n\ndisabled\n"
+    answers = "\n\n\n\n\n\ndisabled\n"
 
     result = CliRunner().invoke(
         cli.app,
@@ -143,6 +170,7 @@ def test_interactive_init_supports_local_whisper(tmp_path):
 def test_interactive_init_supports_cloud_doubao_without_echoing_secrets(tmp_path):
     home = tmp_path / "cloud-home"
     answers = (
+        "\n"
         "\n"
         "doubao\n"
         "tos-access-id\n"
