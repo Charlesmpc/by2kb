@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-08-29
+
 - Add a portable `install-by2kb` bootstrap Skill so an Agent can install, configure,
   diagnose, and connect the packaged Hermes integration without cloning the repository.
 - Add the non-interactive `by2kb init --preset agent-local` path and make local
