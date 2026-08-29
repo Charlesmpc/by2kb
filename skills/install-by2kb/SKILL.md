@@ -38,6 +38,25 @@ direct-URL installation remains pinned or its virtual environment is broken, exp
 the problem and ask before uninstalling and reinstalling it. Never delete a pipx
 environment manually without explicit user approval.
 
+## Upgrade without losing personalization
+
+Treat `$BY2KB_HOME` (normally `~/.by2kb`) and the configured knowledge-base folder as
+user-owned state. An upgrade must preserve `config.toml`, `.env`, `by2kb.db`, downloaded
+models, custom Skills, and every knowledge artifact.
+
+1. Inspect `by2kb version`, `pipx list`, and `by2kb doctor --json` first.
+2. Run `pipx upgrade by2kb`. Do not run `by2kb init`, `by2kb init --force`, or rewrite
+   configuration during an ordinary upgrade.
+3. Refresh only the managed Hermes adapter with
+   `by2kb agent install hermes --force`.
+4. Run `by2kb doctor --json` again and report any migration or restart requirement.
+
+The Hermes adapter directory is program-owned. Put a personalized runtime Skill at
+`$BY2KB_HOME/skills/video-to-knowledge/SKILL.md`, or set `BY2KB_HERMES_SKILL` to an
+explicit file; both take precedence over the packaged Skill and survive adapter
+replacement. Other enrichment Skills belong under `$BY2KB_HOME/skills` and already
+take precedence over packaged defaults.
+
 ## Optional: cloud ASR
 
 Use this path only when the user chooses Doubao ASR or cannot run Whisper locally:

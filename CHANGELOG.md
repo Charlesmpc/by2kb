@@ -7,6 +7,9 @@
 - Add the non-interactive `by2kb init --preset agent-local` path and make local
   faster-whisper the default ASR; Doubao with private TOS staging remains an explicit
   cloud-provider option.
+- Define an upgrade-safe personalization boundary: configuration, credentials, job
+  history, models, knowledge artifacts, and custom Skills remain user-owned, while a
+  personalized Hermes runtime Skill overrides the replaceable packaged adapter copy.
 
 ## 0.3.0 - 2026-08-29
 

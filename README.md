@@ -33,6 +33,10 @@ The installation Skill defaults to local faster-whisper, Agent-hosted summaries,
 Bilibili and YouTube sources, and a local Markdown knowledge base. It does not clone
 the repository or ask for cloud credentials in chat.
 
+Upgrades replace application and adapter code but preserve `$BY2KB_HOME` (normally
+`~/.by2kb`), the configured knowledge-base folder, downloaded models, job history,
+credentials, and custom Skills. See [Upgrading](docs/upgrading.md).
+
 ### Install it yourself
 
 Install the published package with local Whisper and YouTube support:

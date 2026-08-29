@@ -258,3 +258,9 @@ pipx install '/absolute/path/to/by2kb[asr-whisper,youtube]'
 
 `by2kb agent install hermes` copies the plugin into the active `HERMES_HOME`, enables it
 through the Hermes CLI, and asks the user to restart the gateway.
+
+The installed plugin directory is program-owned and may be replaced during upgrades.
+A personalized Hermes runtime Skill belongs at
+`$BY2KB_HOME/skills/video-to-knowledge/SKILL.md` (or the path named by
+`BY2KB_HERMES_SKILL`); it takes precedence over the packaged copy and remains outside
+the replacement boundary. See [Upgrading](upgrading.md) for the complete state contract.
