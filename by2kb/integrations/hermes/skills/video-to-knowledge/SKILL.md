@@ -13,10 +13,12 @@ two bounded enrichment calls. Do not clone or inspect the by2kb repository.
 
 For an explicit/manual request:
 
-1. Check installation with `by2kb version`. If missing, ask the user to install
-   with `pipx install by2kb[asr-doubao,youtube]` when YouTube is required.
-2. If configuration is missing, run `by2kb init` and let the user provide TOS and
-   Doubao ASR credentials. Select `agent` for enrichment.
+1. Check installation with `by2kb version`. If missing, use the packaged
+   `install-by2kb` Skill. The default installation is
+   `pipx install by2kb[asr-whisper,youtube]` with
+   `by2kb init --preset agent-local`.
+2. Use cloud Doubao ASR only when the user explicitly selects it. Never ask the user
+   to send TOS or ASR credentials through an IM conversation.
 3. Run `by2kb ingest <URL_OR_LOCAL_PATH> --enricher external_agent --json`.
 4. Run `by2kb enrichment next <JOB_ID> --provider <HOST_PROVIDER> --model
    <HOST_MODEL> --json`.

@@ -1,0 +1,53 @@
+---
+name: install-by2kb
+description: Install, configure, update, or diagnose by2kb for an Agent user. Defaults to local faster-whisper and local Markdown; use a cloud ASR provider only when the user explicitly chooses one.
+---
+
+# Install by2kb
+
+Install by2kb as an independent CLI package, then install its adapter into the active
+Agent. Do not clone or inspect the by2kb source repository as an installation method.
+
+## Before changing the system
+
+1. Confirm the target machine is controlled by the user.
+2. Check for Python 3.12+, `pipx`, `ffmpeg`, `ffprobe`, `by2kb`, and the Agent host.
+3. If by2kb already has configuration, do not replace it. Run
+   `by2kb doctor --json`, explain any failures, and preserve the current ASR and
+   knowledge-base choices unless the user asks to change them.
+
+## Default: local Agent installation
+
+Use this path unless the user explicitly requests cloud ASR:
+
+1. Install from PyPI with
+   `pipx install "by2kb[asr-whisper,youtube]"`.
+2. Create a cloud-free Agent configuration with
+   `by2kb init --preset agent-local`. This selects local faster-whisper, Bilibili and
+   YouTube sources, Agent-hosted summarization, and a local Markdown library.
+3. Before downloading a Whisper model, tell the user its name and that the download
+   can be large. Continue only after the user agrees, then run
+   `by2kb models install`.
+4. For Hermes, run `by2kb agent install hermes`, followed by
+   `by2kb doctor --json`.
+5. Restarting a running Agent can interrupt the current conversation. Ask before
+   restarting it, then verify the gateway and ask the user to send one test video URL.
+
+If pipx reports that by2kb is already installed, try `pipx upgrade by2kb`. If an old
+direct-URL installation remains pinned or its virtual environment is broken, explain
+the problem and ask before uninstalling and reinstalling it. Never delete a pipx
+environment manually without explicit user approval.
+
+## Optional: cloud ASR
+
+Use this path only when the user chooses Doubao ASR or cannot run Whisper locally:
+
+1. Install `pipx install "by2kb[asr-doubao,youtube]"`.
+2. Run `by2kb init` in a trusted local terminal and select `doubao` when prompted.
+3. Do not ask the user to paste TOS or ASR credentials into an IM conversation. The
+   initializer stores secrets in the local by2kb `.env` file.
+4. Install the Agent adapter and run `by2kb doctor --json` as above.
+
+Stop and report the exact failed check when a required runtime, credential, permission,
+model download, or Agent restart needs user action. Do not weaken permissions or switch
+providers merely to make diagnostics pass.

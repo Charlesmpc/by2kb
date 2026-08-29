@@ -18,16 +18,37 @@ Standalone users can run the same pipeline with their own OpenAI-compatible API 
 
 ## Start here
 
-Requires Python 3.12+, `pipx`, and `ffmpeg`/`ffprobe` on PATH. Install the published
-package from PyPI with the Doubao ASR and YouTube integrations:
+Requires Python 3.12+, `pipx`, and `ffmpeg`/`ffprobe` on PATH.
+
+### Ask your Agent to install it
+
+Send this prompt to an Agent with terminal access:
+
+```text
+Read and follow the official by2kb installation skill:
+https://raw.githubusercontent.com/Charlesmpc/by2kb/main/skills/install-by2kb/SKILL.md
+```
+
+The installation Skill defaults to local faster-whisper, Agent-hosted summaries,
+Bilibili and YouTube sources, and a local Markdown knowledge base. It does not clone
+the repository or ask for cloud credentials in chat.
+
+### Install it yourself
+
+Install the published package with local Whisper and YouTube support:
+
+```bash
+pipx install "by2kb[asr-whisper,youtube]"
+by2kb init --preset agent-local
+by2kb models install
+```
+
+Cloud Doubao ASR remains available for machines that should not run Whisper locally:
 
 ```bash
 pipx install "by2kb[asr-doubao,youtube]"
 by2kb init
 ```
-
-For local Whisper instead of Doubao ASR, install
-`by2kb[asr-whisper,youtube]`.
 
 `by2kb init` guides you through four decisions:
 
@@ -156,7 +177,7 @@ Bilibili mobile app
            │
            ├─ resolve metadata
            ├─ retrieve audio
-           ├─ stage privately in TOS and run ASR
+           ├─ run local Whisper or a configured cloud ASR provider
            ├─ normalize transcript
            ├─ save raw Markdown + source JSON
            ├─ create a short abstract

@@ -240,15 +240,20 @@ adapter with one command.
 Install the published package and configure the agent integration:
 
 ```bash
-pipx install 'by2kb[asr-doubao]'
-by2kb init
+pipx install 'by2kb[asr-whisper,youtube]'
+by2kb init --preset agent-local
+by2kb models install
 by2kb agent install hermes
 ```
+
+This is the default, cloud-free path. Deployments that prefer hosted ASR can install
+`by2kb[asr-doubao,youtube]` and use the interactive `by2kb init` flow to configure a
+private TOS staging bucket and Doubao credentials.
 
 For repository development, a local source installation can use:
 
 ```bash
-pipx install '/absolute/path/to/by2kb[asr-doubao]'
+pipx install '/absolute/path/to/by2kb[asr-whisper,youtube]'
 ```
 
 `by2kb agent install hermes` copies the plugin into the active `HERMES_HOME`, enables it

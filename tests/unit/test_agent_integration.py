@@ -1,7 +1,9 @@
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from by2kb import cli
 from by2kb.agent_install import install_hermes_plugin
 from by2kb.config import Config, load_config
 from by2kb.jobs.enrichment_service import (
@@ -20,11 +22,54 @@ from by2kb.writers.raw import content_hash, write_artifacts
 def _settings(library_root: Path) -> InitSettings:
     return InitSettings(
         library_root=library_root,
+        asr_provider="doubao_auc",
         tos_access_key="tos-key",
         tos_secret_key="tos-secret",
         tos_bucket="private-audio",
         doubao_api_key="asr-key",
     )
+
+
+def test_init_settings_default_to_local_whisper(tmp_path):
+    settings = InitSettings(library_root=tmp_path / "kb")
+
+    settings.validate()
+
+    assert settings.asr_provider == "faster_whisper"
+
+
+def test_config_without_asr_selection_defaults_to_local_whisper(tmp_path):
+    config = load_config(tmp_path / "empty-home")
+
+    assert config.asr_provider == "faster_whisper"
+
+
+def test_agent_local_preset_is_non_interactive_and_cloud_free(tmp_path):
+    home = tmp_path / "home"
+    library = tmp_path / "notes"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "init",
+            "--preset",
+            "agent-local",
+            "--home",
+            str(home),
+            "--library-root",
+            str(library),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    config = (home / "config.toml").read_text(encoding="utf-8")
+    secrets = (home / ".env").read_text(encoding="utf-8")
+    assert 'providers = ["bilibili_native", "yt_dlp"]' in config
+    assert 'provider = "faster_whisper"' in config
+    assert 'executor = "external_agent"' in config
+    assert "DOUBAO" not in secrets
+    assert "VOLC" not in secrets
+    assert library.is_dir()
 
 
 def test_init_writes_agent_first_configuration(tmp_path, monkeypatch):
