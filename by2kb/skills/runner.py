@@ -15,12 +15,14 @@ from by2kb.skills.model import Skill
 class LlmClient(Protocol):
     provider: str
     model: str
+    runtime_version: str
 
     async def complete(self, system: str, user: str) -> str: ...
 
 
 class OpenAiCompatibleClient:
     provider = "openai_compatible"
+    runtime_version = "chat-completions-v1"
 
     def __init__(self, config: LlmConfig, client: httpx.AsyncClient | None = None):
         self._config = config
@@ -70,7 +72,11 @@ class OpenAiCompatibleClient:
 
 
 def build_prompts(
-    skill: Skill, normalized: NormalizedTranscript, raw_md: str
+    skill: Skill,
+    normalized: NormalizedTranscript,
+    source_content: str,
+    *,
+    source_label: str = "Raw transcript (Markdown)",
 ) -> tuple[str, str]:
     system = (
         "You are a video-knowledge processor. Follow the skill instructions exactly "
@@ -93,7 +99,7 @@ def build_prompts(
         f"- author: {normalized.source.author}\n"
         f"- transcript_kind: {normalized.transcript.kind}\n\n"
         f"# Deterministic transcript quality assessment\n\n{quality_context}\n\n"
-        f"# Raw transcript (Markdown)\n\n{raw_md}"
+        f"# {source_label}\n\n{source_content}"
     )
     return system, user
 
@@ -101,8 +107,15 @@ def build_prompts(
 async def run_skill(
     skill: Skill,
     normalized: NormalizedTranscript,
-    raw_md: str,
+    source_content: str,
     llm: LlmClient,
+    *,
+    source_label: str = "Raw transcript (Markdown)",
 ) -> str:
-    system, user = build_prompts(skill, normalized, raw_md)
+    system, user = build_prompts(
+        skill,
+        normalized,
+        source_content,
+        source_label=source_label,
+    )
     return await llm.complete(system, user)
