@@ -18,13 +18,16 @@ Standalone users can run the same pipeline with their own OpenAI-compatible API 
 
 ## Start here
 
-Requires Python 3.12+, `pipx`, and `ffmpeg`/`ffprobe` on PATH. Until the first PyPI
-publication, install the versioned release artifact directly from GitHub:
+Requires Python 3.12+, `pipx`, and `ffmpeg`/`ffprobe` on PATH. Install the published
+package from PyPI with the Doubao ASR and YouTube integrations:
 
 ```bash
-pipx install "by2kb[asr-doubao,youtube] @ https://github.com/Charlesmpc/by2kb/releases/download/v0.3.0/by2kb-0.3.0-py3-none-any.whl"
+pipx install "by2kb[asr-doubao,youtube]"
 by2kb init
 ```
+
+For local Whisper instead of Doubao ASR, install
+`by2kb[asr-whisper,youtube]`.
 
 `by2kb init` guides you through four decisions:
 
