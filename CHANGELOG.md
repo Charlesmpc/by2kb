@@ -14,6 +14,8 @@
   before enrichment while borderline outputs carry a visible warning.
 - Add a cached long-form enrichment pipeline that plans segment-safe chunks,
   recursively reduces grounded notes, and records a public hierarchy trace.
+- Add a staged Agent enrichment provider using bounded `next`/`submit` operations,
+  allowing Hermes subscription-authenticated runtimes to execute the shared plan.
 - Persist the selected ASR provider, model, and runtime provenance in source and
   transcript artifacts.
 

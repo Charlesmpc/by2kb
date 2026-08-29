@@ -46,7 +46,8 @@ resolve URL/path → audio → ASR → normalize → raw artifacts
 
 Capture, artifact validation, publishing, hashing, and job state remain in `by2kb`.
 Only the component that turns an `EnrichmentRequest` into two Markdown bodies is
-polymorphic.
+polymorphic. Direct API and hosting-Agent modes now share the same long-form planner,
+cache, reducer, final Skills, and artifact writer.
 
 Before an enrichment request is created, by2kb records a deterministic transcript
 quality assessment. Failed assessments preserve raw artifacts but cannot be claimed;

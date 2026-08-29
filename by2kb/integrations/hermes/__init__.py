@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import os
 import re
@@ -79,53 +80,14 @@ def _process(ctx, loop, adapter, chat_id, reply_to, url):
             )
             return
 
-        task = _run_by2kb(["enrichment", "claim", job_id, "--json"])
-        results = {}
-        providers = []
-        models = []
-        for kind, max_tokens in (("abstract_md", 800), ("updated_md", 6000)):
-            output = task["outputs"][kind]
-            result = ctx.llm.complete(
-                messages=[
-                    {"role": "system", "content": output["system_prompt"]},
-                    {"role": "user", "content": output["user_prompt"]},
-                ],
-                max_tokens=max_tokens,
-                purpose=f"by2kb.{kind}",
-            )
-            results[kind] = result.text
-            providers.append(str(result.provider or "hermes"))
-            models.append(str(result.model or "host-model"))
-
-        with tempfile.TemporaryDirectory(prefix="by2kb-") as temporary:
-            root = Path(temporary)
-            abstract_file = root / "abstract.md"
-            study_file = root / "study.md"
-            abstract_file.write_text(results["abstract_md"], encoding="utf-8")
-            study_file.write_text(results["updated_md"], encoding="utf-8")
-            complete = _run_by2kb(
-                [
-                    "enrichment",
-                    "complete",
-                    job_id,
-                    "--abstract-file",
-                    str(abstract_file),
-                    "--study-file",
-                    str(study_file),
-                    "--provider",
-                    ",".join(dict.fromkeys(providers)),
-                    "--model",
-                    ",".join(dict.fromkeys(models)),
-                    "--json",
-                ]
-            )
+        complete = _run_staged_enrichment(ctx, job_id)
         _send(
             loop,
             adapter,
             chat_id,
             _success_message(
                 complete.get("artifacts") or {},
-                results["abstract_md"],
+                _read_abstract(complete.get("artifacts") or {}),
             ),
             reply_to,
         )
@@ -146,6 +108,74 @@ def _process(ctx, loop, adapter, chat_id, reply_to, url):
             except Exception:
                 pass
         _send(loop, adapter, chat_id, f"视频处理失败：{exc}", reply_to)
+
+
+def _run_staged_enrichment(ctx, job_id):
+    provider = str(getattr(ctx.llm, "provider", None) or "hermes")
+    model = str(getattr(ctx.llm, "model", None) or "host-profile")
+    runtime_version = str(getattr(ctx.llm, "runtime_version", None) or "")
+    identity = [
+        "--provider",
+        provider,
+        "--model",
+        model,
+        "--runtime-version",
+        runtime_version,
+    ]
+    for _operation_count in range(512):
+        step = _run_by2kb(
+            ["enrichment", "next", job_id, *identity, "--json"]
+        )
+        if step.get("status") == "completed":
+            return step
+        operation = step.get("operation")
+        if step.get("status") != "needs_input" or not isinstance(operation, dict):
+            raise RuntimeError("by2kb returned an invalid Agent operation")
+        result = _bounded_host_completion(ctx, operation)
+        text = str(getattr(result, "text", "") or "")
+        encoded = text.encode("utf-8")
+        if not text.strip():
+            raise RuntimeError("Hermes returned an empty enrichment operation")
+        if len(encoded) > int(operation["max_output_bytes"]):
+            raise RuntimeError("Hermes enrichment operation exceeded the output limit")
+        with tempfile.TemporaryDirectory(prefix="by2kb-agent-") as temporary:
+            output = Path(temporary) / "operation.md"
+            output.write_text(text, encoding="utf-8")
+            _run_by2kb(
+                [
+                    "enrichment",
+                    "submit",
+                    job_id,
+                    "--operation-id",
+                    str(operation["id"]),
+                    "--output-file",
+                    str(output),
+                    *identity,
+                    "--json",
+                ]
+            )
+    raise RuntimeError("by2kb Agent enrichment exceeded 512 bounded operations")
+
+
+def _bounded_host_completion(ctx, operation):
+    max_tokens = 800 if "short-video-abstract" in operation["user_prompt"] else 6000
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(
+        ctx.llm.complete,
+        messages=[
+            {"role": "system", "content": operation["system_prompt"]},
+            {"role": "user", "content": operation["user_prompt"]},
+        ],
+        max_tokens=max_tokens,
+        purpose=f"by2kb.operation.{str(operation['id'])[:12]}",
+    )
+    try:
+        return future.result(timeout=int(operation["timeout_s"]))
+    except concurrent.futures.TimeoutError as exc:
+        future.cancel()
+        raise RuntimeError("Hermes enrichment operation timed out") from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _run_by2kb(arguments, *, allow_codes={0}):
