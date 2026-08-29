@@ -14,7 +14,10 @@ import threading
 from pathlib import Path
 
 _VIDEO_URL = re.compile(
-    r"https?://(?:www\.)?(?:bilibili\.com/video/[^\s]+|b23\.tv/[^\s]+)",
+    r"https?://(?:"
+    r"(?:www\.)?bilibili\.com/video/[^\s]+|b23\.tv/[^\s]+|"
+    r"(?:(?:www|m|music)\.)?youtube\.com/"
+    r"(?:watch\?[^\s]*v=|shorts/)[^\s]+|youtu\.be/[^\s]+)",
     re.IGNORECASE,
 )
 
@@ -24,7 +27,7 @@ def register(ctx):
     ctx.register_skill(
         "video-to-knowledge",
         skill,
-        description="Transcribe and summarize a Bilibili video with by2kb.",
+        description="Transcribe and summarize a Bilibili or YouTube video with by2kb.",
     )
 
     def intercept(event, gateway, **kwargs):

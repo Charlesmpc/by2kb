@@ -13,7 +13,7 @@ Standalone users can run the same pipeline with their own OpenAI-compatible API 
 
 > **Current release: v0.2.1.** Bilibili ingestion, Doubao AUC ASR, local filesystem
 > output, API enrichment, the external-agent protocol, guided initialization, and the
-> Hermes plugin are implemented. YouTube, a resident service, native Telegram/Lark
+> Hermes plugin are implemented. A resident service, native Telegram/Lark
 > bots, and remote knowledge-base sinks remain planned.
 
 ## Start here
@@ -41,6 +41,14 @@ by2kb doctor
 by2kb doctor --json
 ```
 
+To accept YouTube URLs, enable `bilibili+youtube` during `by2kb init` and install the
+optional source Provider:
+
+```bash
+pipx inject by2kb "yt-dlp>=2025.1.15"
+by2kb doctor
+```
+
 ### Agent-first: Hermes
 
 After selecting `agent` during initialization:
@@ -50,7 +58,8 @@ by2kb agent install hermes
 hermes gateway restart
 ```
 
-Now an authorized user can send a Bilibili or `b23.tv` URL to the Telegram Hermes bot.
+Now an authorized user can send a Bilibili, `b23.tv`, YouTube, or `youtu.be` URL to
+the Telegram Hermes bot.
 The plugin acknowledges immediately, runs transcription in the background, calls the
 Hermes host model through bounded staged operations, writes all three artifacts, and
 replies with the short abstract and knowledge-base paths. No MCP server and no

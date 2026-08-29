@@ -495,6 +495,17 @@ async def _ingest(
 
             store.update_status(job.id, JobStatus.NORMALIZING)
             source_payload = dict(prepared.source_payload)
+            source_payload.setdefault(
+                "source",
+                {
+                    "platform": identity.platform,
+                    "video_id": identity.video_id,
+                    "canonical_url": identity.canonical_url,
+                    "title": prepared.title,
+                    "author": prepared.author,
+                    "duration_s": prepared.duration_s,
+                },
+            )
             if prepared.transcript is not None:
                 normalized = prepared.transcript
                 source_payload.update(

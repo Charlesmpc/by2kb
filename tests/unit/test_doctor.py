@@ -195,3 +195,20 @@ def test_interactive_init_supports_cloud_doubao_without_echoing_secrets(tmp_path
     )
     assert "tos-secret-value" not in result.stdout
     assert "doubao-secret-key" not in result.stdout
+
+
+def test_interactive_init_can_enable_youtube_source(tmp_path):
+    home = tmp_path / "youtube-home"
+    answers = "\nbilibili+youtube\n\n\n\n\n\ndisabled\n"
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["init", "--home", str(home)],
+        input=answers,
+    )
+
+    assert result.exit_code == 0, result.stdout
+    rendered = (home / "config.toml").read_text(encoding="utf-8")
+    assert 'providers = ["bilibili_native", "yt_dlp"]' in rendered
+    assert '[sources.yt_dlp]' in rendered
+    assert "pipx inject by2kb 'yt-dlp" in result.stdout

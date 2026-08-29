@@ -1,6 +1,6 @@
 name: by2kb
 version: "0.2.1"
-description: Transcribe Bilibili videos or local media and enrich them with the Hermes host model.
+description: Transcribe Bilibili/YouTube videos or local media and enrich them with the Hermes host model.
 author: Charlesmpc
 kind: standalone
 hooks:
