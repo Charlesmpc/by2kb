@@ -11,10 +11,10 @@ agent such as Hermes; `by2kb` handles media retrieval and the selected local or 
 ASR provider, while the agent uses its existing model authentication to produce both summaries.
 Standalone users can run the same pipeline with their own OpenAI-compatible API key.
 
-> **Current release: v0.2.1.** Bilibili ingestion, Doubao AUC ASR, local filesystem
-> output, API enrichment, the external-agent protocol, guided initialization, and the
-> Hermes plugin are implemented. A resident service, native Telegram/Lark
-> bots, and remote knowledge-base sinks remain planned.
+> **Current release: v0.3.0.** Bilibili and YouTube ingestion, local and Doubao ASR,
+> cached long-form enrichment, Agent/API execution, task control, guided setup, and
+> the Hermes plugin are implemented. A resident service, native Telegram/Lark bots,
+> and remote knowledge-base sinks remain planned.
 
 ## Start here
 
@@ -22,7 +22,7 @@ Requires Python 3.12+, `pipx`, and `ffmpeg`/`ffprobe` on PATH. Until the first P
 publication, install the versioned release artifact directly from GitHub:
 
 ```bash
-pipx install "by2kb[asr-doubao] @ https://github.com/Charlesmpc/by2kb/releases/download/v0.2.1/by2kb-0.2.1-py3-none-any.whl"
+pipx install "by2kb[asr-doubao,youtube] @ https://github.com/Charlesmpc/by2kb/releases/download/v0.3.0/by2kb-0.3.0-py3-none-any.whl"
 by2kb init
 ```
 
@@ -411,7 +411,7 @@ This path is **off by default** and must stay opt-in per deployment:
 
 Implemented:
 
-- Hermes plugin with deterministic Bilibili URL interception and Telegram replies;
+- Hermes plugin with deterministic Bilibili/YouTube URL interception and Telegram replies;
 - Hermes Skill for natural-language/manual requests.
 
 Planned:
@@ -442,7 +442,7 @@ Markdown plus the original transcript JSON is the portable source of truth.
 
 `.env` is loaded from `$BY2KB_ENV_FILE`, `<BY2KB_HOME>/.env` (default
 `~/.by2kb/.env`), or `./.env`. Artifacts land in
-`<library>/bilibili/<bvid>/{source.json,transcript.json,raw.<Title>.md,short.<Title>.md,long.<Title>.md}`;
+`<library>/<platform>/<video-id>/{source.json,transcript.json,raw.<Title>.md,short.<Title>.md,long.<Title>.md}`;
 the abstract and study notes are produced by the configured API or external agent.
 Exit codes:
 0 completed, 1 terminal failure, 2 retryable, 3 needs auth, 4 duplicate.
@@ -451,18 +451,16 @@ Agent hosts use the durable external-enrichment protocol:
 
 ```bash
 by2kb ingest "<video-url>" --enricher external_agent --json
-by2kb enrichment claim <job-id> --json
-by2kb enrichment complete <job-id> \
-  --abstract-file <short-output.md> \
-  --study-file <long-output.md> \
-  --provider <provider> \
-  --model <model> \
-  --json
+by2kb enrichment next <job-id> \
+  --provider <provider> --model <model> --json
+by2kb enrichment submit <job-id> \
+  --operation-id <operation-id> --output-file <response.md> \
+  --provider <provider> --model <model> --json
 ```
 
-The agent is not called recursively. `by2kb` leaves durable pending work, the host
-claims it, performs two bounded model calls, and submits the generated bodies through
-the trusted publication path.
+The agent is not called recursively. `by2kb` leaves durable pending work and supplies
+one bounded operation at a time; the host model returns each result until the cached
+planner, reducer, and trusted publication path complete both reading depths.
 
 If a video was transcribed before LLM credentials were configured, generate or refresh
 only its two summaries without downloading and transcribing the media again:
@@ -485,7 +483,7 @@ process.
 
 A resident service and remote client mode are planned for higher-volume deployments;
 `BY2KB_SERVER_URL`, HTTP submission, queues and remote workers are not implemented in
-v0.2.1.
+v0.3.0.
 
 ### Who needs the service?
 

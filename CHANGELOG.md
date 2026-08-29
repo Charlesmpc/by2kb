@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 - 2026-08-29
+
 - Add a configurable source-provider registry, adapt native Bilibili ingestion to the
   shared contract, and add an optional yt-dlp transcript/audio provider.
 - Complete the YouTube URL journey with caption-first ingestion, configured ASR
