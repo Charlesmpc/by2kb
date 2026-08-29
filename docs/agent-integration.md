@@ -237,7 +237,7 @@ The `by2kb` Python package owns the CLI and the version-matched Hermes adapter. 
 install the application independently of any agent checkout, then copy and enable the
 adapter with one command.
 
-Target installation experience:
+Install the published package and configure the agent integration:
 
 ```bash
 pipx install 'by2kb[asr-doubao]'
@@ -245,13 +245,11 @@ by2kb init
 by2kb agent install hermes
 ```
 
-Until packages are published, a local source installation can use:
+For repository development, a local source installation can use:
 
 ```bash
 pipx install '/absolute/path/to/by2kb[asr-doubao]'
 ```
 
-Before the first package-index release, use the local source path in the `pipx install`
-command. `by2kb agent install hermes` is implemented now; it copies the plugin into the
-active `HERMES_HOME`, enables it through the Hermes CLI, and asks the user to restart
-the gateway.
+`by2kb agent install hermes` copies the plugin into the active `HERMES_HOME`, enables it
+through the Hermes CLI, and asks the user to restart the gateway.
