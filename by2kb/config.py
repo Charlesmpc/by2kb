@@ -49,7 +49,7 @@ class Config:
     skills_dirs: list[Path] = field(default_factory=list)
     destination: str = "filesystem:library"
     preferred_languages: list[str] = field(default_factory=lambda: ["zh-CN", "zh", "en"])
-    asr_provider: str = "doubao_auc"
+    asr_provider: str = "faster_whisper"
     asr_options: dict[str, object] = field(default_factory=dict)
     enrichment_executor: str = "auto"
     llm: LlmConfig = field(default_factory=LlmConfig)
@@ -147,7 +147,9 @@ def load_config(home: Path | None = None) -> Config:
         skills_dirs=skills_dirs,
         destination=str(pick("destination", "filesystem:library")),
         preferred_languages=list(data.get("preferred_languages", ["zh-CN", "zh", "en"])),
-        asr_provider=str(pick("asr_provider", asr_section.get("provider") or "doubao_auc")),
+        asr_provider=str(
+            pick("asr_provider", asr_section.get("provider") or "faster_whisper")
+        ),
         asr_options={key: value for key, value in asr_section.items() if key != "provider"},
         enrichment_executor=str(
             pick(

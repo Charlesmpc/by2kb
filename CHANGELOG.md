@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.4.0 - 2026-08-29
+
+- Add a portable `install-by2kb` bootstrap Skill so an Agent can install, configure,
+  diagnose, and connect the packaged Hermes integration without cloning the repository.
+- Add the non-interactive `by2kb init --preset agent-local` path and make local
+  faster-whisper the default ASR; Doubao with private TOS staging remains an explicit
+  cloud-provider option.
+- Define an upgrade-safe personalization boundary: configuration, credentials, job
+  history, models, knowledge artifacts, and custom Skills remain user-owned, while a
+  personalized Hermes runtime Skill overrides the replaceable packaged adapter copy.
+
 ## 0.3.0 - 2026-08-29
 
 - Add a configurable source-provider registry, adapt native Bilibili ingestion to the

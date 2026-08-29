@@ -1,7 +1,9 @@
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from by2kb import cli
 from by2kb.agent_install import install_hermes_plugin
 from by2kb.config import Config, load_config
 from by2kb.jobs.enrichment_service import (
@@ -10,6 +12,7 @@ from by2kb.jobs.enrichment_service import (
 )
 from by2kb.jobs.model import Job, JobStatus
 from by2kb.jobs.store import JobStore
+from by2kb.integrations.hermes import _video_skill_path
 from by2kb.normalize import from_asr_result
 from by2kb.providers.asr import AsrResult
 from by2kb.providers.base import SourceIdentity
@@ -20,11 +23,93 @@ from by2kb.writers.raw import content_hash, write_artifacts
 def _settings(library_root: Path) -> InitSettings:
     return InitSettings(
         library_root=library_root,
+        asr_provider="doubao_auc",
         tos_access_key="tos-key",
         tos_secret_key="tos-secret",
         tos_bucket="private-audio",
         doubao_api_key="asr-key",
     )
+
+
+def test_init_settings_default_to_local_whisper(tmp_path):
+    settings = InitSettings(library_root=tmp_path / "kb")
+
+    settings.validate()
+
+    assert settings.asr_provider == "faster_whisper"
+
+
+def test_config_without_asr_selection_defaults_to_local_whisper(tmp_path):
+    config = load_config(tmp_path / "empty-home")
+
+    assert config.asr_provider == "faster_whisper"
+
+
+def test_agent_local_preset_is_non_interactive_and_cloud_free(tmp_path):
+    home = tmp_path / "home"
+    library = tmp_path / "notes"
+
+    result = CliRunner().invoke(
+        cli.app,
+        [
+            "init",
+            "--preset",
+            "agent-local",
+            "--home",
+            str(home),
+            "--library-root",
+            str(library),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    config = (home / "config.toml").read_text(encoding="utf-8")
+    secrets = (home / ".env").read_text(encoding="utf-8")
+    assert 'providers = ["bilibili_native", "yt_dlp"]' in config
+    assert 'provider = "faster_whisper"' in config
+    assert 'executor = "external_agent"' in config
+    assert "DOUBAO" not in secrets
+    assert "VOLC" not in secrets
+    assert library.is_dir()
+
+
+def test_init_does_not_overwrite_personalized_configuration(tmp_path):
+    home = tmp_path / "home"
+    library = tmp_path / "notes"
+    original = InitSettings(
+        library_root=library,
+        asr_provider="faster_whisper",
+        whisper_model="personal-model",
+        whisper_device="cpu",
+        whisper_compute_type="int8",
+    )
+    config_path, env_path = write_initial_config(home, original)
+    original_config = config_path.read_bytes()
+    original_env = env_path.read_bytes()
+    personal_skill = home / "skills" / "my-study" / "SKILL.md"
+    personal_skill.parent.mkdir(parents=True)
+    personal_skill.write_text("personal instructions", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["init", "--preset", "agent-local", "--home", str(home)],
+    )
+
+    assert result.exit_code != 0
+    assert config_path.read_bytes() == original_config
+    assert env_path.read_bytes() == original_env
+    assert personal_skill.read_text(encoding="utf-8") == "personal instructions"
+
+
+def test_hermes_uses_personalized_skill_outside_managed_plugin(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    personalized = home / "skills" / "video-to-knowledge" / "SKILL.md"
+    personalized.parent.mkdir(parents=True)
+    personalized.write_text("personal video workflow", encoding="utf-8")
+    monkeypatch.setenv("BY2KB_HOME", str(home))
+    monkeypatch.delenv("BY2KB_HERMES_SKILL", raising=False)
+
+    assert _video_skill_path() == personalized
 
 
 def test_init_writes_agent_first_configuration(tmp_path, monkeypatch):

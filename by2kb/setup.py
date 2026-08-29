@@ -13,7 +13,7 @@ from by2kb.providers.asr_registry import build_default_asr_registry
 class InitSettings:
     library_root: Path
     source_providers: tuple[str, ...] = ("bilibili_native",)
-    asr_provider: str = "doubao_auc"
+    asr_provider: str = "faster_whisper"
     enrichment_executor: str = "external_agent"
     tos_access_key: str = ""
     tos_secret_key: str = ""

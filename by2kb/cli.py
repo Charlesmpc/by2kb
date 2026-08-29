@@ -201,13 +201,39 @@ def models_install(
 def init_config(
     home: Path = typer.Option(default_home(), "--home", help="Configuration folder"),
     force: bool = typer.Option(False, "--force", help="Replace existing configuration"),
+    preset: str | None = typer.Option(
+        None,
+        "--preset",
+        help="Non-interactive preset: agent-local",
+    ),
+    library_root_option: Path | None = typer.Option(
+        None,
+        "--library-root",
+        help="Knowledge-base folder (defaults to <home>/library)",
+    ),
 ) -> None:
     """Guide a user through ASR, temporary TOS, summaries, and output storage."""
     _configure_stdio()
+    if preset is not None:
+        if preset != "agent-local":
+            raise typer.BadParameter("preset must be agent-local")
+        settings = InitSettings(
+            library_root=(library_root_option or home / "library").expanduser(),
+            source_providers=("bilibili_native", "yt_dlp"),
+            asr_provider="faster_whisper",
+            enrichment_executor="external_agent",
+        )
+        _write_init_configuration(home, settings, force=force)
+        return
+
     typer.echo("Configure by2kb (secrets are stored locally in .env).")
-    library_root = Path(
-        typer.prompt("Knowledge-base folder", default=str(home / "library"))
-    ).expanduser()
+    library_root = (
+        library_root_option.expanduser()
+        if library_root_option is not None
+        else Path(
+            typer.prompt("Knowledge-base folder", default=str(home / "library"))
+        ).expanduser()
+    )
     source_mode = typer.prompt(
         "URL sources (bilibili or bilibili+youtube)", default="bilibili"
     )
@@ -305,6 +331,15 @@ def init_config(
         whisper_device=whisper_device,
         whisper_compute_type=whisper_compute_type,
     )
+    _write_init_configuration(home, settings, force=force)
+
+
+def _write_init_configuration(
+    home: Path,
+    settings: InitSettings,
+    *,
+    force: bool,
+) -> None:
     try:
         config_path, env_path = write_initial_config(home, settings, force=force)
     except ConfigError as exc:
@@ -312,14 +347,14 @@ def init_config(
         raise typer.Exit(exc.exit_code) from exc
     typer.echo(f"Configuration: {config_path}")
     typer.echo(f"Secrets: {env_path}")
-    if "yt_dlp" in source_providers:
+    if "yt_dlp" in settings.source_providers:
         typer.echo("Next: install the optional YouTube source provider.")
         typer.echo("  pipx inject by2kb 'yt-dlp>=2025.1.15'")
-    if asr_provider == "faster_whisper":
+    if settings.asr_provider == "faster_whisper":
         typer.echo("Next: install the optional faster-whisper runtime and model.")
         typer.echo("  pipx inject by2kb 'faster-whisper>=1.2.1,<2'")
-        typer.echo(f"  by2kb models install {whisper_model}")
-    if executor == "external_agent":
+        typer.echo(f"  by2kb models install {settings.whisper_model}")
+    if settings.enrichment_executor == "external_agent":
         typer.echo("Next: by2kb agent install hermes")
     typer.echo("Then verify everything: by2kb doctor")
 

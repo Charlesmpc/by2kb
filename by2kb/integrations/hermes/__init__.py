@@ -23,7 +23,7 @@ _VIDEO_URL = re.compile(
 
 
 def register(ctx):
-    skill = Path(__file__).parent / "skills" / "video-to-knowledge" / "SKILL.md"
+    skill = _video_skill_path()
     ctx.register_skill(
         "video-to-knowledge",
         skill,
@@ -57,6 +57,19 @@ def register(ctx):
         return {"action": "skip", "reason": "by2kb-video"}
 
     ctx.register_hook("pre_gateway_dispatch", intercept)
+
+
+def _video_skill_path() -> Path:
+    configured = os.environ.get("BY2KB_HERMES_SKILL")
+    if configured:
+        candidate = Path(configured).expanduser()
+        if candidate.is_file():
+            return candidate
+    home = Path(os.environ.get("BY2KB_HOME") or (Path.home() / ".by2kb"))
+    personalized = home / "skills" / "video-to-knowledge" / "SKILL.md"
+    if personalized.is_file():
+        return personalized
+    return Path(__file__).parent / "skills" / "video-to-knowledge" / "SKILL.md"
 
 
 def _process(ctx, loop, adapter, chat_id, reply_to, url):
