@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.1 - 2026-09-07
+
+- Fix #34: count job executions once per ingestion, retry, refresh, or re-enrichment
+  instead of counting status transitions. Expose `attempt_count` in task-control
+  JSON and document the preserved legacy counts from versions through 0.4.0.
+- Use a version-independent installation Skill URL in the README.
+
 ## 0.4.0 - 2026-08-29
 
 - Add a portable `install-by2kb` bootstrap Skill so an Agent can install, configure,

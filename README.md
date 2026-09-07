@@ -11,7 +11,7 @@ agent such as Hermes; `by2kb` handles media retrieval and the selected local or 
 ASR provider, while the agent uses its existing model authentication to produce both summaries.
 Standalone users can run the same pipeline with their own OpenAI-compatible API key.
 
-> **Current release: v0.4.0.** Agent-guided installation, a cloud-free local Whisper
+> **Current release: v0.4.1.** Agent-guided installation, a cloud-free local Whisper
 > default, upgrade-safe personalization, Bilibili/YouTube ingestion, Agent/API
 > enrichment, task control, and the Hermes plugin are implemented. A resident service,
 > native Telegram/Lark bots, and remote knowledge-base sinks remain planned.
@@ -26,7 +26,7 @@ Send this prompt to an Agent with terminal access:
 
 ```text
 Read and follow the official by2kb installation skill:
-https://raw.githubusercontent.com/Charlesmpc/by2kb/v0.4.0/skills/install-by2kb/SKILL.md
+https://raw.githubusercontent.com/Charlesmpc/by2kb/main/skills/install-by2kb/SKILL.md
 ```
 
 The installation Skill defaults to local faster-whisper, Agent-hosted summaries,

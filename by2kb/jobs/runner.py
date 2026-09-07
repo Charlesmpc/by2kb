@@ -411,6 +411,7 @@ async def _ingest(
                 job = existing
             if existing is not None and not refresh:
                 if re_enrich:
+                    store.begin_attempt(existing.id)
                     if executor_name == "disabled":
                         raise ConfigError(
                             "--re-enrich requires the api or external_agent executor"
@@ -482,6 +483,7 @@ async def _ingest(
                 if existing is None:
                     store.create_job(job)
 
+            store.begin_attempt(job.id)
             options = FetchOptions(preferred_languages=config.preferred_languages)
             work_dir = config.home / "jobs" / job.id
             work_dir.mkdir(parents=True, exist_ok=True)

@@ -193,6 +193,7 @@ def _snapshot(
         "schema_version": TASK_PROTOCOL_SCHEMA_VERSION,
         "event": event,
         "job_id": job.id,
+        "attempt_count": job.attempt_count,
         "state": job.status.value,
         "stage": _STAGE[job.status],
         "progress": _PROGRESS[job.status],
