@@ -17,6 +17,7 @@ All four commands return the same schema. `schema_version` is currently `1`:
   "schema_version": 1,
   "event": "snapshot",
   "job_id": "01J...",
+  "attempt_count": 1,
   "state": "enriching",
   "stage": "enrichment",
   "progress": 0.85,
@@ -33,6 +34,25 @@ All four commands return the same schema. `schema_version` is currently `1`:
 Agents should branch on `schema_version`, `event`, `state`, `terminal`, and
 `retryable`. Human-readable `message` text may change without a schema-version
 change.
+
+## Execution attempts
+
+`attempt_count` counts executions of an identified job. A queued job starts at 0;
+its first execution starts at 1. Each retry, explicit refresh, or explicit
+`--re-enrich` execution adds exactly one, including retries that reuse a saved
+transcript. Source resolution failures before a job is identified have no job
+counter to update.
+
+Pipeline status transitions, provider-internal retries, status/wait calls,
+deduplicated requests, cancellation, and Agent enrichment claim/submission do not
+increment this field. Agent enrichment completes the already-started attempt.
+
+Legacy data: versions through 0.4.0 counted status transitions instead. Existing
+counts are preserved on upgrade because historical attempts cannot be recovered
+from the stored data; subsequent executions add one to that legacy baseline.
+Do not use these historical totals as accurate attempt counts or retry budgets.
+New jobs use the execution semantics above. This additive JSON field does not
+change `schema_version`.
 
 ## Waiting
 

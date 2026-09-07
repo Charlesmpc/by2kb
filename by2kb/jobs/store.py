@@ -92,6 +92,15 @@ class JobStore:
         )
         self._conn.commit()
 
+    def begin_attempt(self, job_id: str) -> None:
+        """Count one execution after identity resolution and deduplication."""
+        self._conn.execute(
+            "UPDATE jobs SET attempt_count = attempt_count + 1, updated_at = ?"
+            " WHERE id = ?",
+            (utcnow_iso(), job_id),
+        )
+        self._conn.commit()
+
     def update_status(
         self,
         job_id: str,
@@ -102,7 +111,7 @@ class JobStore:
     ) -> None:
         self._conn.execute(
             "UPDATE jobs SET status = ?, last_error_category = ?, error_message = ?,"
-            " attempt_count = attempt_count + 1, updated_at = ? WHERE id = ?",
+            " updated_at = ? WHERE id = ?",
             (status.value, error_category, error_message, utcnow_iso(), job_id),
         )
         self._conn.commit()
