@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add a video Referer to Bilibili metadata requests and client compatibility
+  parameters before WBI playback signing (investigation of #36). This does not
+  guarantee recovery from network-dependent HTTP 412 responses.
+
 ## 0.4.1 - 2026-09-07
 
 - Fix #34: count job executions once per ingestion, retry, refresh, or re-enrichment

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import re
+import secrets
 
 import httpx
 from pydantic import BaseModel
@@ -96,7 +98,8 @@ async def fetch_video_info(
 ) -> BilibiliVideoInfo:
     try:
         response = await client.get(
-            VIEW_URL, params={"bvid": bvid}, headers=_headers()
+            VIEW_URL, params={"bvid": bvid},
+            headers=_headers(f"https://www.bilibili.com/video/{bvid}/"),
         )
     except httpx.HTTPError as exc:
         raise TransientProviderError(f"view failed: {exc}", provider="bilibili") from exc
@@ -124,6 +127,25 @@ async def fetch_video_info(
     )
 
 
+def playback_client_params() -> dict[str, str | int]:
+    """Compatibility fields for the WBI playback gateway, added before signing.
+
+    These are synthetic placeholders, not collected user/browser fingerprints.
+    See https://github.com/JefferyHcool/BiliNote/issues/397.
+    They do not address rejections of the separate metadata view endpoint.
+    """
+    def encoded_placeholder() -> str:
+        return base64.b64encode(secrets.token_hex(16).encode()).decode().rstrip("=")
+
+    return {
+        "web_location": 1550101,
+        "dm_img_list": "[]",
+        "dm_img_str": encoded_placeholder(),
+        "dm_cover_img_str": encoded_placeholder(),
+        "dm_img_inter": '{"ds":[],"wh":[6093,6631,31],"of":[430,760,380]}',
+    }
+
+
 class BilibiliMediaProvider:
     platform = "bilibili"
 
@@ -144,6 +166,7 @@ class BilibiliMediaProvider:
         referer = identity.canonical_url
         img_key, sub_key = await self._keys.get_keys()
         params = {
+            **playback_client_params(),
             "avid": info.aid,
             "cid": info.cid,
             "bvid": info.bvid,
