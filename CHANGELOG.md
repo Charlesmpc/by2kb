@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.2 - 2026-09-08
+
 - Add a video Referer to Bilibili metadata requests and client compatibility
   parameters before WBI playback signing (investigation of #36). This does not
   guarantee recovery from network-dependent HTTP 412 responses.
