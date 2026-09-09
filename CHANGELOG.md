@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.4.3 - 2026-09-09
+
+- Add an opt-in Bilibili `browser` source and explicit `[sources.fallback]` route,
+  including short-link failures, backed by a dedicated Chromium login session.
+- Add `by2kb browser install` / `login`, optional local CDP attachment and browser
+  diagnostics; browser profiles remain outside the installation and survive upgrades.
+- Make browser title/author extraction best-effort, validate downloaded audio and
+  reject detected incomplete previews instead of silently summarizing partial media.
+- Explain native HTTP 412 and browser authentication/download failures, with bounded
+  fallback, actionable errors and privacy-safe attempt diagnostics. This is not a
+  guarantee against site risk control; login and human verification remain manual.
+- Reuse native Bilibili metadata instead of fetching it twice per audio ingestion.
+
 ## 0.4.2 - 2026-09-08
 
 - Add a video Referer to Bilibili metadata requests and client compatibility

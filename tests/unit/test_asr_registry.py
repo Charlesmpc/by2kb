@@ -125,7 +125,7 @@ async def test_ingest_uses_registry_and_persists_provider_identity(
         def __init__(self, *_args):
             pass
 
-        async def fetch_audio(self, _identity, _options):
+        async def fetch_audio(self, _identity, _options, **_kwargs):
             return LocalAudio(
                 path=audio_path,
                 format="mp4",

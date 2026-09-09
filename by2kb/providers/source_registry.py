@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from by2kb.errors import ConfigError, UnsupportedUrl
 from by2kb.providers.base import SourceProvider
@@ -54,7 +55,7 @@ class SourceProviderRegistry:
 
 
 def build_default_source_registry(
-    *, source_options: dict[str, dict[str, object]] | None = None
+    *, source_options: dict[str, dict[str, object]] | None = None, home: Path | None = None
 ) -> SourceProviderRegistry:
     options = source_options or {}
     registry = SourceProviderRegistry()
@@ -65,4 +66,9 @@ def build_default_source_registry(
             YtDlpSourceConfig.from_mapping(options.get("yt_dlp", {}))
         ),
     )
+    from by2kb.config import default_home
+    from by2kb.providers.browser_source import BrowserConfig, BrowserSourceProvider
+    registry.register("browser", BrowserSourceProvider(BrowserConfig.from_mapping(
+        options.get("browser", {}), home=home or default_home()
+    )))
     return registry

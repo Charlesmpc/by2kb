@@ -205,6 +205,7 @@ def _snapshot(
             {
                 "category": job.last_error_category,
                 "message": job.error_message,
+                "requires_user_action": job.status == JobStatus.NEEDS_AUTH or job.last_error_category == "ConfigError",
             }
             if job.last_error_category or job.error_message
             else None

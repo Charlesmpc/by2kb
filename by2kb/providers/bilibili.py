@@ -104,6 +104,14 @@ async def fetch_video_info(
     except httpx.HTTPError as exc:
         raise TransientProviderError(f"view failed: {exc}", provider="bilibili") from exc
     if response.status_code != 200:
+        if response.status_code == 412:
+            raise RateLimited(
+                "Bilibili metadata request was blocked (HTTP 412). Configure "
+                "[sources.fallback] provider = 'browser' and log in to the dedicated browser, "
+                "or ingest a local file from a device that can access the video. "
+                "No audio was acquired; repeatedly retrying the same request may not help.",
+                provider="bilibili",
+            )
         raise TransientProviderError(
             f"view failed: HTTP {response.status_code}", provider="bilibili"
         )
@@ -160,9 +168,9 @@ class BilibiliMediaProvider:
         self._work_dir = work_dir
 
     async def fetch_audio(
-        self, identity: SourceIdentity, options: FetchOptions
+        self, identity: SourceIdentity, options: FetchOptions, *, info: BilibiliVideoInfo | None = None
     ) -> LocalAudio:
-        info = await fetch_video_info(self._client, identity.video_id)
+        info = info or await fetch_video_info(self._client, identity.video_id)
         referer = identity.canonical_url
         img_key, sub_key = await self._keys.get_keys()
         params = {

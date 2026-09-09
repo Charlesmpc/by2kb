@@ -80,9 +80,16 @@ def run_doctor(config: Config, *, provider: str | None = None) -> DoctorReport:
 
 
 def _source_checks(config: Config) -> list[DoctorCheck]:
-    supported = {"bilibili_native", "yt_dlp"}
+    supported = {"bilibili_native", "yt_dlp", "browser"}
     checks: list[DoctorCheck] = []
-    for name in config.sources.providers:
+    names = list(config.sources.providers)
+    fallback = config.sources.options.get("fallback", {}).get("provider", "")
+    if fallback:
+        if fallback != "browser":
+            checks.append(DoctorCheck("source_fallback", False, "Only browser fallback is supported", "Use provider = 'browser' in [sources.fallback]."))
+        elif "browser" not in names:
+            names.append("browser")
+    for name in names:
         normalized = name.strip().lower()
         if normalized not in supported:
             checks.append(
@@ -90,9 +97,28 @@ def _source_checks(config: Config) -> list[DoctorCheck]:
                     f"source_{normalized or 'empty'}",
                     False,
                     f"Unknown source provider: {name}",
-                    "Use bilibili_native or yt_dlp in [sources].providers.",
+                    "Use bilibili_native, yt_dlp or browser in [sources].providers.",
                 )
             )
+            continue
+        if normalized == "browser":
+            from by2kb.providers.browser_source import BrowserConfig
+            try:
+                settings = BrowserConfig.from_mapping(config.sources.options.get("browser", {}), home=config.home)
+            except ConfigError as exc:
+                checks.append(DoctorCheck("source_browser_config", False, str(exc)))
+                continue
+            installed = find_spec("playwright") is not None
+            checks.append(DoctorCheck("source_browser_dependency", installed,
+                "Playwright is installed" if installed else "Playwright is missing",
+                None if installed else "Install by2kb[browser], then run by2kb browser install."))
+            if not settings.cdp_url:
+                checks.append(_directory_check("browser_profile_writable", settings.profile_dir, "Dedicated browser profile"))
+                display_ok = settings.headless or os.name == "nt" or bool(os.environ.get("DISPLAY")) or bool(os.environ.get("WAYLAND_DISPLAY"))
+                checks.append(DoctorCheck("browser_display", display_ok, "Browser display is configured" if display_ok else "Headed browser needs a display", None if display_ok else "Start VNC/X server and set DISPLAY, or explicitly test headless = true."))
+                if settings.executable_path:
+                    checks.append(DoctorCheck("browser_executable", Path(settings.executable_path).is_file(), "Configured browser executable must exist"))
+            checks.append(DoctorCheck("browser_session", True, "Offline check only: login validity and Bilibili playback require a live test; session expiry is not extended."))
             continue
         if normalized == "bilibili_native":
             checks.append(

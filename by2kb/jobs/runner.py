@@ -60,15 +60,19 @@ class IngestOutcome:
     status: str = ""
     artifacts: dict[str, str] = field(default_factory=dict)
     message: str = ""
+    error: dict[str, object] | None = None
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "exit_code": self.exit_code,
             "job_id": self.job_id,
             "status": self.status,
             "artifacts": self.artifacts,
             "message": self.message,
         }
+        if self.error is not None:
+            result["error"] = self.error
+        return result
 
 
 ResolveSource = Callable[[httpx.AsyncClient], Awaitable[SourceIdentity]]
@@ -126,6 +130,12 @@ def _failure(store: JobStore, job: Job | None, error: By2kbError) -> IngestOutco
         status=status.value,
         artifacts=_stored_artifacts(store, job.id) if job else {},
         message=f"{category_of(error)}: {error}",
+        error={
+            "reason_code": category_of(error),
+            "requires_user_action": error.exit_code == 3 or isinstance(error, ConfigError),
+            "attempts": (getattr(error, "detail", None) or {}).get("attempts", [])
+                if isinstance(getattr(error, "detail", None), dict) else [],
+        },
     )
 
 
@@ -284,9 +294,21 @@ async def ingest_url(
     source_registry: SourceProviderRegistry | None = None,
 ) -> IngestOutcome:
     sources = source_registry or build_default_source_registry(
-        source_options=config.sources.options
+        source_options=config.sources.options, home=config.home
     )
     provider: SourceProvider = sources.select(url, config.sources.providers)
+    fallback_name = config.sources.options.get("fallback", {}).get("provider", "")
+    if fallback_name:
+        if fallback_name != "browser":
+            raise ConfigError("sources.fallback.provider currently supports 'browser' only")
+        from by2kb.providers.source_fallback import FallbackSourceProvider
+        from by2kb.errors import UnsupportedUrl
+        try:
+            fallback = sources.select(url, [fallback_name])
+        except UnsupportedUrl:
+            fallback = None
+        if fallback is not None and provider.name != fallback.name:
+            provider = FallbackSourceProvider(provider, fallback, url)
 
     async def resolver(client: httpx.AsyncClient) -> SourceIdentity:
         return await provider.resolve(url, client)
