@@ -48,9 +48,9 @@ class BilibiliSourceProvider:
         cancel_check()
         set_stage("capturing_media")
         media = bilibili.BilibiliMediaProvider(client, WbiKeyCache(client), work_dir)
-        audio = await media.fetch_audio(identity, options)
+        audio = await media.fetch_audio(identity, options, info=info)
         return PreparedSource(
-            title=info.title,
+            title=info.title or identity.video_id,
             author=info.author,
             duration_s=info.duration_s,
             audio=audio,

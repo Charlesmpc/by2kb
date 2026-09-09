@@ -36,9 +36,55 @@ app = typer.Typer(help="by2kb — forward a video, keep the knowledge")
 enrichment_app = typer.Typer(help="External-agent enrichment protocol")
 agent_app = typer.Typer(help="Install by2kb into an agent host")
 models_app = typer.Typer(help="Inspect and install optional local ASR models")
+browser_app = typer.Typer(help="Install or log in to the optional dedicated browser")
 app.add_typer(enrichment_app, name="enrichment")
 app.add_typer(agent_app, name="agent")
 app.add_typer(models_app, name="models")
+app.add_typer(browser_app, name="browser")
+
+
+@browser_app.command("install")
+def browser_install() -> None:
+    """Install Chromium into Playwright's cache; never replace user profiles."""
+    import subprocess
+    import sys
+    from importlib.util import find_spec
+    if find_spec("playwright") is None:
+        typer.echo("Install the browser extra first: pipx inject by2kb 'playwright>=1.58,<2'")
+        raise typer.Exit(1)
+    raise typer.Exit(subprocess.call([sys.executable, "-m", "playwright", "install", "chromium"]))
+
+
+@browser_app.command("login")
+def browser_login(
+    timeout: int = typer.Option(300, min=10, max=1800, help="Seconds to keep the login window open"),
+) -> None:
+    """Open the dedicated Bilibili session for manual login; requires a GUI/VNC."""
+    from dataclasses import replace
+    from by2kb.providers.browser_source import BrowserConfig, browser_context
+    config = load_config()
+    settings = replace(BrowserConfig.from_mapping(config.sources.options.get("browser", {}), home=config.home), headless=False)
+
+    async def login():
+        async with browser_context(settings) as context:
+            page = await context.new_page()
+            try:
+                await page.goto("https://www.bilibili.com/", wait_until="domcontentloaded", timeout=60000)
+                typer.echo(f"Log in manually in this browser. Window remains open for up to {timeout}s; closing this tab finishes. Site session expiry is unchanged.")
+                for _ in range(timeout):
+                    if page.is_closed():
+                        break
+                    await asyncio.sleep(1)
+            finally:
+                if not page.is_closed():
+                    await page.close()
+    try:
+        asyncio.run(login())
+    except By2kbError as exc:
+        _command_error(exc, False)
+    except Exception:
+        typer.echo("Browser login failed. Check browser installation, DISPLAY/VNC, or cdp_url; run by2kb doctor.")
+        raise typer.Exit(1)
 
 
 def _configure_stdio() -> None:
@@ -72,15 +118,16 @@ def ingest(
     config = load_config()
     if refresh and re_enrich:
         raise typer.BadParameter("--refresh and --re-enrich cannot be used together")
-    outcome = asyncio.run(
-        ingest_source(
+    try:
+        outcome = asyncio.run(ingest_source(
             source,
             config,
             refresh=refresh,
             re_enrich=re_enrich,
             enricher=enricher,
-        )
-    )
+        ))
+    except By2kbError as exc:
+        _command_error(exc, json_out)
     if json_out:
         typer.echo(json.dumps(outcome.to_dict(), ensure_ascii=False))
     else:

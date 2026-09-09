@@ -110,6 +110,11 @@ See [Agent task control](docs/task-control.md) for the versioned
 `status`/`wait`/`cancel`/`retry` protocol and checkpoint-aware retries.
 See [ASR providers](docs/asr-providers.md) for optional local faster-whisper setup,
 explicit model installation, and the existing cloud Doubao path.
+**Bilibili HTTP 412?** Version 0.4.3 adds an opt-in browser fallback using a dedicated
+Chromium login session. It requires the `browser` extra and manual login when needed;
+it does not guarantee recovery from site risk control. See the
+[browser setup and fallback guide](docs/source-providers.md#browser-fallback-043-opt-in).
+
 See [Source providers](docs/source-providers.md) for configurable provider priority,
 optional yt-dlp installation, caption policy, audio fallback, and cookie handling.
 See [Local media](docs/local-media.md) for supported formats, content-addressed

@@ -22,7 +22,8 @@ async def test_metadata_referer_and_preserved_failure(status):
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
         if status == 412:
-            with pytest.raises(TransientProviderError, match="view failed: HTTP 412"):
+            from by2kb.errors import RateLimited
+            with pytest.raises(RateLimited, match="HTTP 412"):
                 await fetch_video_info(client, BVID)
         else:
             assert (await fetch_video_info(client, BVID)).cid == 1
