@@ -39,3 +39,13 @@ Legacy `enrichment claim` and `enrichment complete` remain available for adapter
 that already generate the two final documents themselves. New adapters should use
 the staged protocol so long transcripts benefit from chunking, cache reuse, partial
 retry, and bounded operations.
+
+
+## Missing titles (0.5.1)
+
+The staged protocol may first request grounded title JSON before any summary or
+chunk operation. Submit it through the same operation API. Do not assume the first
+operation returns Markdown. Invalid title output is rejected before caching.
+Legacy claim callers must follow `title_required` and switch to `enrichment next` for
+these jobs; summary prompts are withheld until the title is resolved. See
+[0.5.1](releases/0.5.1.md) for validation, abstention and raw-only semantics.

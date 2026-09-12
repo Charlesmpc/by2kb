@@ -36,3 +36,10 @@ default, so adapter replacement does not overwrite the user's workflow.
 If a pinned direct-URL pipx installation requires uninstalling and reinstalling the
 application, confirm the action first. Removing the pipx environment still must not
 remove `$BY2KB_HOME` or the knowledge-base folder.
+
+
+## 0.5.1 title provenance
+
+No automatic title migration runs. Existing archives stay untouched until explicit
+re-enrichment. Raw-only jobs do not gain LLM requirements. See
+[0.5.1 behavior and Agent protocol](releases/0.5.1.md).

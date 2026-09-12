@@ -29,6 +29,7 @@ def render_updated_md(
             "video_id": source.video_id,
             "canonical_url": source.canonical_url,
             "title": source.title,
+            "title_source": source.title_source,
             "skills": f"{skill_name}@{skill_version}",
             "model": model,
             "provider": provider,

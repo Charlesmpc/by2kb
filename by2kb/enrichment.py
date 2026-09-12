@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
@@ -19,6 +20,8 @@ from by2kb.normalize import NormalizedTranscript
 from by2kb.skills.model import Skill, find_skill
 from by2kb.skills.runner import LlmClient, build_prompts, run_skill
 from by2kb.writers.updated import render_updated_md, write_updated_md
+from by2kb.writers.raw import write_artifacts
+from by2kb.titles import title_required, title_prompt, parse_title_response
 
 KIND_ABSTRACT_MD = "abstract_md"
 KIND_UPDATED_MD = "updated_md"
@@ -59,9 +62,32 @@ class LlmEnrichmentProvider:
         self._llm = llm
 
     async def submit(self, request: EnrichmentRequest) -> EnrichmentSubmission:
+        generated: dict[str, Path] = {}
+        if title_required(request.normalized):
+            if request.cancel_check:
+                request.cancel_check()
+            system, user = title_prompt(request.normalized)
+            title = parse_title_response(await self._llm.complete(system, user), user)
+            if title:
+                normalized = request.normalized.model_copy(deep=True)
+                normalized.source.title = title
+                normalized.source.title_source = "generated"
+                source_path = request.raw_path.parent / "source.json"
+                payload = (
+                    json.loads(source_path.read_text(encoding="utf-8"))
+                    if source_path.exists()
+                    else {}
+                )
+                generated.update(
+                    write_artifacts(
+                        request.staging, source_payload=payload, normalized=normalized
+                    )
+                )
+                request = replace(
+                    request, normalized=normalized, raw_path=generated["raw_md"]
+                )
         pipeline = LongFormEnrichmentPipeline(request.long_form, request.cache_root)
         prepared = await pipeline.run(request, self._llm)
-        generated: dict[str, Path] = {}
         for kind, filename_kind, artifact_type, skill in _outputs(request):
             if request.cancel_check:
                 request.cancel_check()
@@ -127,10 +153,21 @@ def create_enrichment_request(
     study_profile: str | None = None,
     cancel_check: Callable[[], None] | None = None,
 ) -> EnrichmentRequest:
+    source_path = raw_path.parent / "source.json"
+    if source_path.exists() and normalized.source.title_source == "original":
+        payload = json.loads(source_path.read_text(encoding="utf-8"))
+        provenance = payload.get("title_source") or payload.get("source", {}).get(
+            "title_source"
+        )
+        if provenance == "generated":
+            normalized = normalized.model_copy(deep=True)
+            normalized.source.title_source = "generated"
     skill_dirs = config.skills_dirs or [config.home / "skills"]
     abstract_name = abstract_profile or config.abstract_skill
-    study_name = study_profile or config.study_skill or (
-        config.skills[0] if config.skills else "default-video-digest"
+    study_name = (
+        study_profile
+        or config.study_skill
+        or (config.skills[0] if config.skills else "default-video-digest")
     )
     abstract_skill = find_skill(abstract_name, skill_dirs)
     study_skill = find_skill(study_name, skill_dirs)
@@ -158,6 +195,18 @@ def create_enrichment_request(
 
 
 def external_manifest(request: EnrichmentRequest) -> dict:
+    if title_required(request.normalized):
+        system, user = title_prompt(request.normalized)
+        return {
+            "job_id": request.job_id,
+            "raw_path": str(request.raw_path),
+            "source": request.normalized.source.model_dump(mode="json"),
+            "title_required": True,
+            "title_operation": {"system_prompt": system, "user_prompt": user},
+            "outputs": {},
+            "pipeline": None,
+            "next_step": "Use enrichment next / enrichment submit before summary generation",
+        }
     raw_md = request.raw_path.read_text(encoding="utf-8")
     outputs: dict[str, dict] = {}
     plan = TranscriptChunkPlanner(request.long_form).plan(request.normalized)
@@ -208,6 +257,10 @@ def write_external_artifacts(
     provider: str,
     model: str,
 ) -> dict[str, Path]:
+    if title_required(request.normalized):
+        raise ConfigError(
+            "missing title requires enrichment next / enrichment submit before summaries"
+        )
     if not abstract_body.strip() or not study_body.strip():
         raise ConfigError("external enrichment outputs must not be empty")
     generated: dict[str, Path] = {}

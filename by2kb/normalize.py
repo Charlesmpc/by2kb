@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from by2kb.providers.base import SourceIdentity
 from by2kb.quality import TranscriptQuality
@@ -22,7 +22,16 @@ class SourceMeta(BaseModel):
     video_id: str
     canonical_url: str
     title: str
+    title_source: Literal["original", "generated"] = "original"
     author: str
+
+    @field_validator("title_source", mode="before")
+    @classmethod
+    def default_title_source(cls, value):
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "original"
+        return value
+
     duration_ms: int | None = None
 
 
