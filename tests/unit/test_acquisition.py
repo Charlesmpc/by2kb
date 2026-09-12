@@ -44,14 +44,14 @@ async def test_download_idle_tracks_bytes_not_256k_buffer(tmp_path):
     from by2kb.providers.acquisition import download
     class Slow(httpx.AsyncByteStream):
         async def __aiter__(self):
-            for _ in range(5):
-                await asyncio.sleep(0.008)
+            for _ in range(6):
+                await asyncio.sleep(0.1)
                 yield b'x'
     async with httpx.AsyncClient(transport=httpx.MockTransport(
         lambda request: httpx.Response(200, stream=Slow())
     )) as client:
-        await download(client, ['https://cdn.test/a'], tmp_path / 'audio', {}, idle_s=0.025, total_s=0.5)
-    assert (tmp_path / 'audio').read_bytes() == b'xxxxx'
+        await download(client, ['https://cdn.test/a'], tmp_path / 'audio', {}, idle_s=0.5, total_s=5)
+    assert (tmp_path / 'audio').read_bytes() == b'xxxxxx'
 
 async def test_probe_cancellation_reaps_subprocess(tmp_path, monkeypatch):
     from unittest.mock import AsyncMock, MagicMock

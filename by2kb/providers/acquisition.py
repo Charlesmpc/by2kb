@@ -6,11 +6,19 @@ import httpx
 import json
 from datetime import datetime, timezone
 from functools import wraps
+from contextvars import ContextVar
 from by2kb.errors import TransientProviderError
 
 
 DISCOVERY_S = 120
 DOWNLOAD_S = 600
+_deadline = ContextVar('acquisition_deadline', default=None)
+
+
+def remaining_acquisition_s():
+    """Read the enclosing budget, including an outer fallback deadline."""
+    deadline = _deadline.get()
+    return max(0, deadline() - asyncio.get_running_loop().time()) if deadline else float('inf')
 
 
 def bounded_prepare(function):
@@ -24,6 +32,11 @@ def bounded_prepare(function):
         changed = loop.time()
         download_deadline = None
         timer = asyncio.timeout(seconds)
+        parent_deadline = _deadline.get()
+        def current_deadline():
+            own = timer.when()
+            return min(own, parent_deadline()) if parent_deadline else own
+        token = _deadline.set(current_deadline)
 
         def update(value):
             nonlocal stage, remaining_discovery, changed, download_deadline
@@ -58,6 +71,8 @@ def bounded_prepare(function):
                         await cleanup(task)
         except TimeoutError as exc:
             raise TransientProviderError(f'{stage} timed out', provider=self.name) from exc
+        finally:
+            _deadline.reset(token)
     return wrapped
 
 

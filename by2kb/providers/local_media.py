@@ -177,13 +177,16 @@ async def probe_duration(path: Path) -> float | None:
     try:
         async with asyncio.timeout(30):
             stdout, stderr = await process.communicate()
-    except (TimeoutError, asyncio.CancelledError):
+    except (TimeoutError, asyncio.CancelledError) as exc:
         from by2kb.providers.acquisition import cleanup
         try:
             process.kill()
         except ProcessLookupError:
             pass
         await cleanup(process.wait())
+        if isinstance(exc, TimeoutError):
+            from by2kb.errors import TransientProviderError
+            raise TransientProviderError('Media inspection (ffprobe) timed out; retry the task.', provider='local_media') from exc
         raise
     if process.returncode != 0:
         detail = stderr.decode("utf-8", "replace").strip()

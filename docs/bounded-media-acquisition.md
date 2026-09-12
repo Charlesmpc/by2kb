@@ -23,6 +23,10 @@ browsers, export cookies, or prove live Bilibili access.
   capped at 30 seconds and browser discovery capped at 60 seconds (a smaller
   configured browser timeout is honored). These include browser connection,
   navigation, and JavaScript evaluation, not just the polling loop.
+  Browser polling reads the same enclosing deadline (including the fallback
+  budget), rather than restarting the timeout after navigation. Explicit login
+  and verification gates are classified during polling, before expiry; available
+  audio streams still take precedence over unrelated login text.
 - Entering download switches to a 600-second deadline. CDN alternatives share one
   download deadline; the fallback chain retains the original deadline instead of
   resetting it on a second route. Discovery time is accounted separately from
@@ -37,6 +41,8 @@ browsers, export cookies, or prove live Bilibili access.
 - Both native and browser audio receive a duration sanity check and a one-second
   audio decode sample within a 30-second validation budget. Rejected audio is
   removed. ffprobe has a 30-second deadline and is killed/reaped on cancellation.
+  Its own timeout is a retryable provider error, including for local-file jobs;
+  external task cancellation is propagated unchanged.
   Short/incomplete media is a transient acquisition failure, not an automatic
   login diagnosis. A generic QR-login button alone is not authentication evidence.
 - Preparation polls cancellation every 250 ms, including while provider calls

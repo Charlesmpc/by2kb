@@ -17,7 +17,7 @@ import httpx
 
 from by2kb.errors import ConfigError, NeedsAuth, RateLimited, TerminalProviderError, TransientProviderError
 from by2kb.providers.base import LocalAudio, PreparedSource
-from by2kb.providers.acquisition import bounded_prepare, cleanup
+from by2kb.providers.acquisition import bounded_prepare, cleanup, remaining_acquisition_s
 from by2kb.providers.bilibili import resolve
 from by2kb.providers.local_media import probe_duration
 
@@ -193,15 +193,15 @@ class BrowserSourceProvider:
                 set_stage("browser_loading")
                 await self._navigate(page, identity.canonical_url)
                 set_stage("waiting_media")
-                deadline = asyncio.get_running_loop().time() + self.config.timeout_s
                 metadata = {}
                 urls = []
-                while asyncio.get_running_loop().time() < deadline:
+                while remaining_acquisition_s() > 0:
                     cancel_check()
                     snapshot = await page.evaluate("""() => ({
                       play: window.__playinfo__ || {},
                       meta: (window.__INITIAL_STATE__ || {}).videoData || {},
-                      title: document.querySelector('h1')?.textContent || ''
+                      title: document.querySelector('h1')?.textContent || '',
+                      text: document.body?.innerText || ''
                     })""")
                     metadata = snapshot.get("meta") or {}
                     if len(metadata.get("pages") or []) > 1:
@@ -213,10 +213,15 @@ class BrowserSourceProvider:
                         urls.extend(audio_urls(payload))
                     if urls:
                         break
-                    await asyncio.sleep(0.5)
+                    # Classify while there is still budget, not after the outer
+                    # deadline has already cancelled this task. Media wins over
+                    # unrelated login text when usable streams are available.
+                    error = missing_media_error(snapshot.get('text', ''), [p.get('code') for p in captures])
+                    if isinstance(error, (NeedsAuth, RateLimited, TerminalProviderError)):
+                        raise error
+                    await asyncio.sleep(min(0.5, remaining_acquisition_s()))
                 if not urls:
-                    body = await page.locator("body").inner_text(timeout=5000)
-                    raise missing_media_error(body, [p.get("code") for p in captures])
+                    raise TransientProviderError('waiting_media timed out', provider=self.name)
                 title = str(metadata.get("title") or snapshot.get("title") or identity.video_id).strip()
                 author = str((metadata.get("owner") or {}).get("name") or "")
                 user_agent = await page.evaluate("navigator.userAgent")
