@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-09-12
+
+- Recover from Bilibili `view` HTTP 412 through `pagelist`: obtain CID/duration
+  and continue native audio download and configured ASR without requiring a browser.
+  Title/author may be unavailable; use the BVID title and preserve metadata provenance.
+- Retain the opt-in browser Plan B introduced in 0.4.3. Basic installations do not
+  require Playwright or Chromium; browser fallback requires separate dependencies,
+  a compatible browser session and manual login/verification when the site requests it.
+- Bound native/browser discovery, shared CDN download and validation stages; add
+  cancellation polling, incomplete-file cleanup and persisted acquisition statuses.
+- Detect explicit login/verification gates before the browser discovery deadline;
+  a generic QR-login button or incomplete audio alone is not proof login is required.
+- Map ffprobe's own timeout to a retryable error while preserving external cancellation.
+- Resolve short URLs once with validated destinations and a 10-second budget.
+  Browser fallback no longer retries failed short-link resolution; use a full BVID
+  video URL if short-link resolution fails.
+- See [0.5.0 release notes](docs/releases/0.5.0.md) for setup and validation limits.
+
 ## 0.4.3 - 2026-09-09
 
 - Add an opt-in Bilibili `browser` source and explicit `[sources.fallback]` route,

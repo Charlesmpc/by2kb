@@ -321,16 +321,12 @@ async def ingest_url(
         store: JobStore,
         job: Job,
     ) -> PreparedSource:
-        stages = {
-            "fetching_transcript": JobStatus.FETCHING_TRANSCRIPT,
-            "capturing_media": JobStatus.CAPTURING_MEDIA,
-        }
         return await provider.prepare(
             identity,
             client,
             work_dir,
             fetch_options,
-            set_stage=lambda stage: store.update_status(job.id, stages[stage]),
+            set_stage=lambda stage: store.update_status(job.id, JobStatus(stage)),
             cancel_check=lambda: _raise_if_cancelled(store, job),
         )
 

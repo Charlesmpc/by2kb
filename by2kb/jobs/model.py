@@ -8,6 +8,13 @@ from datetime import datetime, timezone
 class JobStatus(str, enum.Enum):
     ACCEPTED = "accepted"
     RESOLVING = "resolving"
+    RESOLVING_SOURCE = "resolving_source"
+    FETCHING_METADATA = "fetching_metadata"
+    BROWSER_CONNECTING = "browser_connecting"
+    BROWSER_LOADING = "browser_loading"
+    WAITING_MEDIA = "waiting_media"
+    DOWNLOADING_MEDIA = "downloading_media"
+    VALIDATING_MEDIA = "validating_media"
     FETCHING_TRANSCRIPT = "fetching_transcript"
     CAPTURING_MEDIA = "capturing_media"
     TRANSCRIBING = "transcribing"

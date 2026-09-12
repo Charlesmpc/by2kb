@@ -110,9 +110,11 @@ See [Agent task control](docs/task-control.md) for the versioned
 `status`/`wait`/`cancel`/`retry` protocol and checkpoint-aware retries.
 See [ASR providers](docs/asr-providers.md) for optional local faster-whisper setup,
 explicit model installation, and the existing cloud Doubao path.
-**Bilibili HTTP 412?** Version 0.4.3 adds an opt-in browser fallback using a dedicated
-Chromium login session. It requires the `browser` extra and manual login when needed;
-it does not guarantee recovery from site risk control. See the
+**Bilibili HTTP 412?** Version 0.5.0 can recover from a blocked `view` request using
+`pagelist` to obtain CID and continue native audio acquisition—no browser required.
+An opt-in browser Plan B uses a dedicated Chromium session when native acquisition
+fails. It requires the `browser` extra and manual login when the site requests it;
+neither route guarantees recovery from all site risk controls. See the
 [browser setup and fallback guide](docs/source-providers.md#browser-fallback-043-opt-in).
 
 See [Source providers](docs/source-providers.md) for configurable provider priority,

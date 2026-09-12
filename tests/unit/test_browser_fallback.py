@@ -38,15 +38,15 @@ async def test_fallback_after_metadata_block(tmp_path):
     browser.prepare.assert_awaited_once()
 
 
-async def test_fallback_includes_short_link_resolution(tmp_path):
+async def test_fallback_does_not_repeat_short_link_resolution(tmp_path):
     native, browser = provider("native"), provider("browser")
     native.resolve.side_effect = TransientProviderError("412")
     browser.resolve.return_value = resolve(BVID)
     browser.prepare.return_value = prepared(tmp_path)
     chain = FallbackSourceProvider(native, browser, "https://b23.tv/abc")
-    assert (await chain.resolve(chain.source, None)).video_id == BVID
-    await run_prepare(chain, tmp_path)
-    native.prepare.assert_not_awaited()
+    with pytest.raises(TransientProviderError):
+        await chain.resolve(chain.source, None)
+    browser.resolve.assert_not_awaited()
 
 
 @pytest.mark.parametrize("error", [TerminalProviderError("deleted"), JobCancelled("stop"), ConfigError("invalid")])
@@ -98,7 +98,7 @@ def test_cdn_allowlist_and_backup():
     assert audio_urls(payload) == ["https://cdn.bilivideo.com/audio?token=private", "https://backup.bilivideo.cn/x"]
 
 
-@pytest.mark.parametrize("text, cls", [("扫码登录", NeedsAuth), ("完成验证", NeedsAuth), ("412", RateLimited), ("视频已被删除", TerminalProviderError), ("", TransientProviderError)])
+@pytest.mark.parametrize("text, cls", [("扫码登录", TransientProviderError), ("完成验证", NeedsAuth), ("412", RateLimited), ("视频已被删除", TerminalProviderError), ("", TransientProviderError)])
 def test_human_readable_failures(text, cls):
     assert isinstance(missing_media_error(text, []), cls)
 
@@ -118,7 +118,7 @@ async def test_download_requires_full_response_and_uses_backup(tmp_path, monkeyp
     assert all("cookie" not in r.headers for r in seen)
 
 
-@pytest.mark.parametrize("meta, expected_error", [({}, None), ({"duration": 100}, NeedsAuth), ({"bvid": "BV1jmbD65EP2"}, TerminalProviderError), ({"pages": [{}, {}]}, TerminalProviderError)])
+@pytest.mark.parametrize("meta, expected_error", [({}, None), ({"duration": 100}, TransientProviderError), ({"bvid": "BV1jmbD65EP2"}, TerminalProviderError), ({"pages": [{}, {}]}, TerminalProviderError)])
 async def test_browser_prepare_metadata_optional_and_identity_guard(tmp_path, monkeypatch, meta, expected_error):
     from unittest.mock import MagicMock
     page = MagicMock()
@@ -145,6 +145,7 @@ async def test_browser_prepare_metadata_optional_and_identity_guard(tmp_path, mo
         with pytest.raises(expected_error):
             await run_prepare(obj, tmp_path)
         decoder.assert_not_awaited()
+        assert not (tmp_path / 'browser-audio.m4a').exists()
     else:
         result = await run_prepare(obj, tmp_path)
         assert result.title == BVID
