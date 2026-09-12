@@ -41,6 +41,7 @@ def render_raw_md(normalized: NormalizedTranscript) -> str:
             "video_id": source.video_id,
             "canonical_url": source.canonical_url,
             "title": source.title,
+            "title_source": source.title_source,
             "author": source.author,
             "duration_ms": source.duration_ms if source.duration_ms is not None else "",
             "language": transcript.language or "",
@@ -48,7 +49,9 @@ def render_raw_md(normalized: NormalizedTranscript) -> str:
             "transcript_model": transcript.model or "",
             "transcript_kind": transcript.kind,
             "fetched_at": transcript.fetched_at,
-            "transcript_quality": transcript.quality.status if transcript.quality else "",
+            "transcript_quality": transcript.quality.status
+            if transcript.quality
+            else "",
         }
     )
     lines = [frontmatter, "", f"# {source.title}", ""]
@@ -75,6 +78,22 @@ def write_artifacts(
     normalized: NormalizedTranscript,
 ) -> dict[str, Path]:
     target_dir.mkdir(parents=True, exist_ok=True)
+    source_payload = dict(source_payload)
+    provenance = source_payload.get("title_source") or source_payload.get(
+        "source", {}
+    ).get("title_source")
+    if normalized.source.title_source == "original" and provenance in {
+        "original",
+        "generated",
+    }:
+        normalized.source.title_source = provenance
+    source_payload["source"] = {
+        **source_payload.get("source", {}),
+        **normalized.source.model_dump(mode="json"),
+    }
+    source_payload["title_source"] = normalized.source.title_source
+    if "title" in source_payload:
+        source_payload["title"] = normalized.source.title
     raw_md = render_raw_md(normalized)
     raw_name = markdown_artifact_name(
         normalized.source.title, normalized.source.video_id, "raw"

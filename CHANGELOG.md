@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.5.1 - 2026-09-12
+
+- Generate a concise, transcript-grounded title before enrichment when metadata is
+  blank, a bare BVID, or an exact generic placeholder; preserve readable titles.
+- Reuse the API or external Agent enrichment client, including staged next/submit
+  operations. Validate JSON title responses and exact supporting evidence.
+- Keep generated titles and provenance consistent in source/transcript JSON, raw
+  and summary frontmatter, filenames, prompts and enrichment plans.
+- Default absent/null/empty `title_source` to `original`. Raw-only remains free of
+  LLM requirements. No archive migration runs on upgrade; explicit re-enrichment
+  checks the selected job. See [0.5.1 notes](docs/releases/0.5.1.md).
+
 ## 0.5.0 - 2026-09-12
 
 - Recover from Bilibili `view` HTTP 412 through `pagelist`: obtain CID/duration

@@ -24,6 +24,7 @@ from by2kb.jobs.store import JobStore
 from by2kb.normalize import NormalizedTranscript
 from by2kb.sinks.filesystem import FilesystemSink
 from by2kb.writers.raw import content_hash
+from by2kb.titles import TITLE_SYSTEM, parse_title_response
 
 KIND_TRANSCRIPT_JSON = "transcript_json"
 KIND_RAW_MD = "raw_md"
@@ -173,6 +174,9 @@ def submit_external_enrichment_operation(
             model=model,
             runtime_version=runtime_version,
         )
+        pending = session.pending()
+        if pending and pending.id == operation_id and pending.system_prompt == TITLE_SYSTEM:
+            parse_title_response(content, pending.user_prompt)
         session.submit(operation_id, content)
         store.update_enrichment_task(
             job_id,
