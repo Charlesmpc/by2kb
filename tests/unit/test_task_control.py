@@ -51,6 +51,20 @@ def _create_job(
     return job
 
 
+@pytest.mark.parametrize('stage', [
+    'resolving_source', 'fetching_metadata', 'browser_connecting', 'browser_loading',
+    'waiting_media', 'downloading_media', 'validating_media',
+])
+def test_acquisition_stages_are_readable_from_store(tmp_path, stage):
+    config = _config(tmp_path)
+    _create_job(config, status=JobStatus(stage))
+    payload = task_status(config, 'task-job')
+    assert payload['stage'] == stage
+    assert payload['state'] == stage
+    assert not payload['terminal']
+    assert 0 < payload['progress'] < 0.45
+
+
 def test_status_returns_versioned_agent_envelope(tmp_path):
     config = _config(tmp_path)
     _create_job(config, status=JobStatus.TRANSCRIBING)

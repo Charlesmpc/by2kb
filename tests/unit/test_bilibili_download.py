@@ -9,6 +9,7 @@ class _FakeStream:
     def __init__(self, url: str):
         self.url = url
         self.status_code = 200
+        self.headers = {}
 
     async def __aenter__(self):
         return self

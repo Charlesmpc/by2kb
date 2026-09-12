@@ -30,7 +30,11 @@ async def test_metadata_referer_and_preserved_failure(status):
 
 
 @pytest.mark.asyncio
-async def test_playback_fields_are_included_in_signature(tmp_path):
+async def test_playback_fields_are_included_in_signature(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+    decoder = AsyncMock()
+    monkeypatch.setattr('by2kb.providers.browser_source.validate_audio', decoder)
+    monkeypatch.setattr('by2kb.providers.browser_source.probe_duration', AsyncMock(return_value=10))
     class Keys:
         async def get_keys(self):
             return KEYS
@@ -58,3 +62,4 @@ async def test_playback_fields_are_included_in_signature(tmp_path):
         provider = BilibiliMediaProvider(client, Keys(), tmp_path)
         audio = await provider.fetch_audio(resolve(BVID), FetchOptions())
         assert audio.path.read_bytes() == b"audio"
+        decoder.assert_awaited_once()

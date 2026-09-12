@@ -17,6 +17,7 @@ import httpx
 
 from by2kb.errors import ConfigError, NeedsAuth, RateLimited, TerminalProviderError, TransientProviderError
 from by2kb.providers.base import LocalAudio, PreparedSource
+from by2kb.providers.acquisition import bounded_prepare, cleanup
 from by2kb.providers.bilibili import resolve
 from by2kb.providers.local_media import probe_duration
 
@@ -130,7 +131,7 @@ def missing_media_error(text: str, codes: list[int]):
         hint in text for hint in ("视频已失效", "视频不见了", "视频已被删除")
     ):
         return TerminalProviderError("Video is unavailable; no audio or transcript was acquired.", provider="browser")
-    if any(hint in text for hint in ("扫码登录", "登录后观看", "登录后继续", "请先登录", "安全验证", "完成验证")) or -403 in codes:
+    if any(hint in text for hint in ("登录后观看", "登录后继续", "请先登录", "安全验证", "完成验证")) or -403 in codes:
         return NeedsAuth("Browser requires login or human verification. Run 'by2kb browser login' (or use the configured VNC browser), then retry. No audio was acquired; transcription and summaries were not run.", provider="browser")
     if -352 in codes or "412" in text or "请求被拦截" in text:
         return RateLimited("Browser access was blocked. Stop repeated retries; try later or ingest a local audio/video file from a device that can access it.", provider="browser")
@@ -150,17 +151,8 @@ class BrowserSourceProvider:
         if not self.supports(source):
             from by2kb.errors import UnsupportedUrl
             raise UnsupportedUrl("Browser provider supports single Bilibili video URLs only")
-        if "b23.tv" != urlparse(source).hostname:
-            return resolve(source)
-        async with browser_context(self.config) as context:
-            page = await context.new_page()
-            try:
-                await self._navigate(page, source)
-                if urlparse(page.url).hostname not in {"www.bilibili.com", "bilibili.com", "m.bilibili.com"}:
-                    raise TerminalProviderError("Short link did not resolve to a Bilibili video", provider=self.name)
-                return resolve(page.url)
-            finally:
-                await page.close()
+        from by2kb.providers.source_bilibili import BilibiliSourceProvider
+        return await BilibiliSourceProvider().resolve(source, client)
 
     async def _navigate(self, page, url):
         from playwright.async_api import Error
@@ -169,6 +161,7 @@ class BrowserSourceProvider:
         except Error as exc:
             raise TransientProviderError("Browser navigation failed. Check the browser connection and retry.", provider=self.name) from exc
 
+    @bounded_prepare
     async def prepare(self, identity, client, work_dir, options, *, set_stage, cancel_check):
         if identity.platform != "bilibili":
             raise ConfigError("Browser fallback only supports Bilibili")
@@ -197,8 +190,9 @@ class BrowserSourceProvider:
 
             page.on("response", on_response)
             try:
-                set_stage("capturing_media")
+                set_stage("browser_loading")
                 await self._navigate(page, identity.canonical_url)
+                set_stage("waiting_media")
                 deadline = asyncio.get_running_loop().time() + self.config.timeout_s
                 metadata = {}
                 urls = []
@@ -227,12 +221,18 @@ class BrowserSourceProvider:
                 author = str((metadata.get("owner") or {}).get("name") or "")
                 user_agent = await page.evaluate("navigator.userAgent")
                 target = work_dir / "browser-audio.m4a"
+                set_stage("downloading_media")
                 await self._download(urls, target, user_agent, identity.canonical_url, cancel_check)
-                duration = await probe_duration(target)
-                expected_duration = float(metadata.get("duration") or 0)
-                if expected_duration and (duration is None or duration + 5 < expected_duration * 0.95):
-                    raise NeedsAuth("Browser returned only a preview or incomplete audio. Check login and full-video access, then retry; partial audio will not be transcribed.", provider=self.name)
-                await validate_audio(target)
+                set_stage("validating_media")
+                try:
+                    duration = await probe_duration(target)
+                    expected_duration = float(metadata.get("duration") or 0)
+                    if expected_duration and (duration is None or duration + 5 < expected_duration * 0.95):
+                        raise TransientProviderError("Incomplete audio; acquisition failed. This alone is not evidence of a login requirement; partial audio will not be transcribed.", provider=self.name)
+                    await validate_audio(target)
+                except BaseException:
+                    target.unlink(missing_ok=True)
+                    raise
                 warnings = []
                 if not metadata:
                     warnings.append("metadata_unavailable: used page title or video ID; author may be empty")
@@ -253,33 +253,15 @@ class BrowserSourceProvider:
                 tasks = list(pending)
                 for task in tasks:
                     task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                await page.close()
+                await cleanup(asyncio.gather(*tasks, return_exceptions=True))
+                await cleanup(page.close())
 
     async def _download(self, urls, target, user_agent, referer, cancel_check):
-        target.parent.mkdir(parents=True, exist_ok=True)
-        # CDN requests carry no login cookies. Signed URLs are private and never logged.
-        async with httpx.AsyncClient(timeout=60, follow_redirects=False, trust_env=False) as client:
-            for url in dict.fromkeys(urls):
-                cancel_check()
-                try:
-                    async with client.stream("GET", url, headers={"User-Agent": user_agent, "Referer": referer}) as response:
-                        if response.status_code != 200:
-                            continue
-                        size = 0
-                        with target.open("wb") as output:
-                            async for chunk in response.aiter_bytes(262144):
-                                cancel_check()
-                                size += len(chunk)
-                                if size > self.config.max_audio_bytes:
-                                    raise TerminalProviderError("Browser audio exceeds max_audio_bytes; no transcription was started.", provider=self.name)
-                                output.write(chunk)
-                        if size:
-                            return
-                except httpx.HTTPError:
-                    continue
-        target.unlink(missing_ok=True)
-        raise TransientProviderError("Browser found the video, but every audio CDN download failed. Playback alone does not guarantee downloadable audio; retry later or ingest a local file.", provider=self.name)
+        from by2kb.providers.acquisition import download
+        # Signed CDN URLs are private; no browser cookies are exported.
+        async with httpx.AsyncClient(timeout=30, follow_redirects=False, trust_env=False) as client:
+            await download(client, urls, target, {"User-Agent": user_agent, "Referer": referer},
+                           max_bytes=self.config.max_audio_bytes, cancel_check=cancel_check)
 
 
 async def validate_audio(path: Path):

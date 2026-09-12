@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from urllib.parse import urlparse
 import base64
 import re
 import secrets
@@ -37,10 +39,18 @@ class BilibiliVideoInfo(BaseModel):
     duration_s: int
     page: int = 1
     page_count: int = 1
+    metadata_source: str = "view"
 
 
 def resolve(url: str) -> SourceIdentity:
-    match = BVID_PATTERN.search(url or "")
+    parsed = urlparse(url or "")
+    candidate = url if BVID_PATTERN.fullmatch(url or "") else (
+        parsed.path.removeprefix("/video/").rstrip("/")
+        if parsed.scheme in {"http", "https"} and parsed.hostname in
+        {"www.bilibili.com", "bilibili.com", "m.bilibili.com"}
+        and not parsed.username and not parsed.password and parsed.path.startswith("/video/") else ""
+    )
+    match = BVID_PATTERN.fullmatch(candidate)
     if not match:
         raise UnsupportedUrl(f"not a recognizable Bilibili video URL: {url}")
     bvid = match.group(0)
@@ -53,18 +63,22 @@ def resolve(url: str) -> SourceIdentity:
 
 async def expand_short_url(client: httpx.AsyncClient, url: str) -> str:
     try:
-        response = await client.get(url, headers=_headers(), follow_redirects=False)
-    except httpx.HTTPError as exc:
-        raise TransientProviderError(
-            f"short link expansion failed: {exc}", provider="bilibili"
-        ) from exc
-    location = response.headers.get("location")
-    if response.status_code not in range(300, 400) or not location:
-        raise TransientProviderError(
-            f"short link expansion failed: HTTP {response.status_code}",
-            provider="bilibili",
-        )
-    return str(httpx.URL(url).join(location))
+        async with asyncio.timeout(10):
+            for _ in range(5):
+                parsed = urlparse(url)
+                if (parsed.scheme not in {"http", "https"} or parsed.username or parsed.password
+                        or parsed.hostname != "b23.tv"):
+                    return resolve(url).canonical_url
+                response = await client.get(url, headers=_headers(), follow_redirects=False)
+                location = response.headers.get("location")
+                if response.status_code not in {301, 302, 303, 307, 308} or not location:
+                    raise TransientProviderError("short link expansion failed", provider="bilibili")
+                url = str(httpx.URL(url).join(location))
+                if urlparse(url).hostname != "b23.tv":
+                    return resolve(url).canonical_url
+            raise UnsupportedUrl("short link exceeded 5 redirects")
+    except (httpx.HTTPError, TimeoutError) as exc:
+        raise TransientProviderError("short link expansion failed or timed out", provider="bilibili") from exc
 
 
 def _headers(referer: str | None = None) -> dict[str, str]:
@@ -105,13 +119,22 @@ async def fetch_video_info(
         raise TransientProviderError(f"view failed: {exc}", provider="bilibili") from exc
     if response.status_code != 200:
         if response.status_code == 412:
-            raise RateLimited(
-                "Bilibili metadata request was blocked (HTTP 412). Configure "
-                "[sources.fallback] provider = 'browser' and log in to the dedicated browser, "
-                "or ingest a local file from a device that can access the video. "
-                "No audio was acquired; repeatedly retrying the same request may not help.",
-                provider="bilibili",
-            )
+            try:
+                fallback = await client.get(
+                    f"{API_BASE}/x/player/pagelist", params={"bvid": bvid},
+                    headers=_headers(f"https://www.bilibili.com/video/{bvid}/"),
+                )
+            except httpx.HTTPError as exc:
+                raise TransientProviderError("pagelist metadata unavailable", provider="bilibili") from exc
+            if fallback.status_code != 200:
+                raise RateLimited("view HTTP 412; pagelist metadata unavailable; try browser or local file", provider="bilibili")
+            pages = read_envelope(fallback.json(), what="pagelist")
+            target = next((p for p in pages if p.get("page") == page), None)
+            if not target or not target.get("cid"):
+                raise TerminalProviderError("pagelist returned no requested cid", provider="bilibili")
+            return BilibiliVideoInfo(bvid=bvid, aid=0, cid=target["cid"], title="", author="",
+                duration_s=target.get("duration") or 0, page=page, page_count=len(pages),
+                metadata_source="pagelist_after_view_412")
         raise TransientProviderError(
             f"view failed: HTTP {response.status_code}", provider="bilibili"
         )
@@ -166,6 +189,8 @@ class BilibiliMediaProvider:
         self._client = client
         self._keys = keys
         self._work_dir = work_dir
+        self.set_stage = lambda stage: None
+        self.cancel_check = lambda: None
 
     async def fetch_audio(
         self, identity: SourceIdentity, options: FetchOptions, *, info: BilibiliVideoInfo | None = None
@@ -196,13 +221,26 @@ class BilibiliMediaProvider:
 
         audios = (data.get("dash") or {}).get("audio") or []
         if not audios:
-            raise TerminalProviderError(
+            raise TransientProviderError(
                 "playurl returned no audio streams", provider="bilibili"
             )
         best = max(audios, key=lambda a: int(a.get("bandwidth") or 0))
         target = self._work_dir / f"{info.bvid}.m4a"
         audio_urls = [best["baseUrl"], *(best.get("backupUrl") or [])]
+        self.set_stage("downloading_media")
         await self._download(audio_urls, target, referer)
+        self.set_stage("validating_media")
+        from by2kb.providers.browser_source import probe_duration, validate_audio
+        try:
+            async with asyncio.timeout(30):
+                self.cancel_check()
+                duration = await probe_duration(target)
+                if info.duration_s and (duration is None or duration + 5 < info.duration_s * 0.95):
+                    raise TransientProviderError("Incomplete audio; not evidence of a login requirement", provider="bilibili")
+                await validate_audio(target)
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
         return LocalAudio(
             path=target,
             format="mp4",
@@ -211,23 +249,5 @@ class BilibiliMediaProvider:
         )
 
     async def _download(self, urls: list[str], target, referer: str) -> None:
-        headers = _headers(referer)
-        headers["Referer"] = referer
-        last_error = "no audio URL available"
-        for url in dict.fromkeys(urls):
-            try:
-                async with self._client.stream("GET", url, headers=headers) as stream:
-                    if stream.status_code not in (200, 206):
-                        last_error = f"HTTP {stream.status_code}"
-                        continue
-                    with open(target, "wb") as fh:
-                        async for chunk in stream.aiter_bytes(262144):
-                            fh.write(chunk)
-                    return
-            except httpx.HTTPError as exc:
-                last_error = str(exc)
-        target.unlink(missing_ok=True)
-        raise TransientProviderError(
-            f"audio download failed on all CDN URLs: {last_error}",
-            provider="bilibili",
-        )
+        from by2kb.providers.acquisition import download
+        await download(self._client, urls, target, _headers(referer), cancel_check=self.cancel_check)

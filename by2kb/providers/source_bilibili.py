@@ -6,6 +6,7 @@ from pathlib import Path
 import httpx
 
 from by2kb.providers import bilibili
+from by2kb.providers.acquisition import bounded_prepare
 from by2kb.providers.base import (
     FetchOptions,
     PreparedSource,
@@ -34,6 +35,7 @@ class BilibiliSourceProvider:
             candidate = await bilibili.expand_short_url(client, candidate)
         return bilibili.resolve(candidate)
 
+    @bounded_prepare
     async def prepare(
         self,
         identity: SourceIdentity,
@@ -46,8 +48,11 @@ class BilibiliSourceProvider:
     ) -> PreparedSource:
         info = await bilibili.fetch_video_info(client, identity.video_id)
         cancel_check()
-        set_stage("capturing_media")
+        work_dir.mkdir(parents=True, exist_ok=True)
+        (work_dir / "metadata.json").write_text(info.model_dump_json())
         media = bilibili.BilibiliMediaProvider(client, WbiKeyCache(client), work_dir)
+        media.set_stage = set_stage
+        media.cancel_check = cancel_check
         audio = await media.fetch_audio(identity, options, info=info)
         return PreparedSource(
             title=info.title or identity.video_id,

@@ -1,7 +1,8 @@
-"""One explicit, bounded fallback, including failures while expanding short URLs."""
+"""Resolve once, then try one explicit, bounded acquisition fallback."""
 from __future__ import annotations
 
 from dataclasses import replace
+from by2kb.providers.acquisition import bounded_prepare
 
 from by2kb.errors import NeedsAuth, RateLimited, TransientProviderError, TerminalProviderError
 
@@ -32,13 +33,9 @@ class FallbackSourceProvider:
             return await self.primary.resolve(source, client)
         except RECOVERABLE as error:
             self._record(self.primary, error)
-            self.active = self.fallback
-            try:
-                return await self.fallback.resolve(source, client)
-            except (NeedsAuth, RateLimited, TransientProviderError, TerminalProviderError) as error:
-                self._record(self.fallback, error)
-                self._raise_final(error)
+            self._raise_final(error)
 
+    @bounded_prepare
     async def prepare(self, identity, client, work_dir, options, *, set_stage, cancel_check):
         kwargs = dict(set_stage=set_stage, cancel_check=cancel_check)
         try:

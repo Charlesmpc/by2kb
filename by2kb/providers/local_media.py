@@ -174,7 +174,17 @@ async def probe_duration(path: Path) -> float | None:
             "ffprobe is required for local media files; install ffmpeg and run "
             "'by2kb doctor'"
         ) from exc
-    stdout, stderr = await process.communicate()
+    try:
+        async with asyncio.timeout(30):
+            stdout, stderr = await process.communicate()
+    except (TimeoutError, asyncio.CancelledError):
+        from by2kb.providers.acquisition import cleanup
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        await cleanup(process.wait())
+        raise
     if process.returncode != 0:
         detail = stderr.decode("utf-8", "replace").strip()
         raise TerminalProviderError(

@@ -132,7 +132,8 @@ In this mode that browser owns its profile and display; the `profile` and `headl
 launch settings do not apply. Only by2kb's newly opened tabs are closed after a job.
 An optional `executable_path` selects an existing Chromium for managed-profile mode.
 
-Fallback is attempted at most once, including short-link resolution failures. A
+Short links are resolved once over HTTP; resolution failure does not open a browser.
+Acquisition fallback is attempted at most once using the canonical identity. A
 confirmed deleted/unavailable video, cancellation or configuration error does not
 trigger fallback. Non-Bilibili sources keep their selected provider. Use
 `providers = ["browser"]` under `[sources]` to explicitly test browser-only acquisition.
@@ -144,7 +145,10 @@ playback API. Browser acquisition reads playback data directly. If there is neit
 audio nor a usable transcript, the job fails; it never publishes invented summaries.
 Browser downloads require a complete HTTP response, a bounded size (default 1 GiB,
 configurable `max_audio_bytes`), media inspection and a decodable audio sample.
-Detected previews shorter than available full-video metadata require user action.
+Audio shorter than available full-video metadata is rejected as a transient
+acquisition failure; incomplete CDN transfers alone do not imply login is required.
+See [bounded acquisition implementation and gaps](bounded-media-acquisition.md)
+for stage deadlines, cancellation, checkpoints, and deferred hard-cleanup work.
 
 `needs_auth` / exit 3 means login or human verification is required: agents should
 ask the user, not retry indefinitely. Transient/CDN failures use exit 2 and explain
