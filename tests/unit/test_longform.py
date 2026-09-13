@@ -152,7 +152,7 @@ async def test_long_transcript_recursively_reduces_and_records_provenance(tmp_pa
     assert max(node["level"] for node in trace["hierarchy"]) >= 3
     assert trace["cache_misses"] > len(trace["chunks"])
     assert "content" not in trace_path.read_text(encoding="utf-8")
-    assert "enrichment_pipeline: 1.0" in submission.artifacts[
+    assert "enrichment_pipeline: 1.1" in submission.artifacts[
         "abstract_md"
     ].read_text(encoding="utf-8")
 

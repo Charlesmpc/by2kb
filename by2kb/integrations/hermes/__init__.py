@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -164,6 +165,7 @@ def _run_staged_enrichment(ctx, job_id):
         operation = step.get("operation")
         if step.get("status") != "needs_input" or not isinstance(operation, dict):
             raise RuntimeError("by2kb returned an invalid Agent operation")
+        operation = _load_operation(operation)
         result = _bounded_host_completion(ctx, operation)
         text = str(getattr(result, "text", "") or "")
         encoded = text.encode("utf-8")
@@ -225,6 +227,24 @@ def _bounded_host_completion(ctx, operation):
         raise RuntimeError("Hermes enrichment operation timed out") from exc
     finally:
         executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _load_operation(ticket):
+    if "request_file" not in ticket:
+        return ticket  # Pre-0.5.3 CLI compatibility.
+    with Path(ticket["request_file"]).open("rb") as stream:
+        encoded = stream.read(32 * 1024 * 1024 + 1)
+    if len(encoded) != ticket["request_bytes"] or len(encoded) > 32 * 1024 * 1024:
+        raise RuntimeError("Agent request size mismatch")
+    if hashlib.sha256(encoded).hexdigest() != ticket["request_sha256"]:
+        raise RuntimeError("Agent request checksum mismatch")
+    operation = json.loads(encoded)
+    for key in ("id", "max_output_bytes", "timeout_s"):
+        if operation.get(key) != ticket[key]:
+            raise RuntimeError("Agent request identity or limits mismatch")
+    if not all(isinstance(operation.get(k), str) for k in ("system_prompt", "user_prompt")):
+        raise RuntimeError("Agent request prompts are invalid")
+    return operation
 
 
 def _run_by2kb(arguments, *, allow_codes={0}):

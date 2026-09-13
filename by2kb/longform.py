@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from by2kb.enrichment import EnrichmentRequest
     from by2kb.skills.runner import LlmClient
 
-PIPELINE_VERSION = "1.0"
+PIPELINE_VERSION = "1.1"
 CACHE_SCHEMA_VERSION = 1
 KIND_ENRICHMENT_PLAN_JSON = "enrichment_plan_json"
 
@@ -31,6 +31,9 @@ class ChunkSpec(BaseModel):
     estimated_tokens: int
     input_hash: str
     oversized: bool = False
+    # Half-open character range within a single oversized source segment.
+    char_start: int | None = None
+    char_end: int | None = None
 
 
 class EnrichmentPlan(BaseModel):
@@ -141,6 +144,26 @@ class TranscriptChunkPlanner:
         current_tokens = 0
         for index, (segment, text) in enumerate(zip(segments, rendered, strict=True)):
             segment_tokens = estimate_tokens(text)
+            if segment_tokens > self._config.chunk_token_budget:
+                if current:
+                    chunks.append(self._chunk_spec(segments, rendered, current, len(chunks)))
+                    current, current_tokens = [], 0
+                source = segment.text.strip()
+                # Conservative code-point budget bounds CJK and non-CJK alike.
+                overhead = estimate_tokens(f"[{format_timestamp(segment.start_ms)}] ")
+                width = max(1, self._config.chunk_token_budget - overhead)
+                for start in range(0, len(source), width):
+                    end = min(start + width, len(source))
+                    piece = f"[{format_timestamp(segment.start_ms)}] {source[start:end]}"
+                    chunks.append(ChunkSpec(
+                        id=f"chunk-{len(chunks):04d}", first_segment=index, last_segment=index,
+                        start_ms=segment.start_ms, end_ms=segment.start_ms + segment.duration_ms,
+                        estimated_tokens=estimate_tokens(piece),
+                        input_hash=hashlib.sha256(piece.encode("utf-8")).hexdigest(),
+                        char_start=start, char_end=end,
+                        oversized=estimate_tokens(piece) > self._config.chunk_token_budget,
+                    ))
+                continue
             proposed = [*current, index]
             proposed_duration = _chunk_duration_ms(segments, proposed)
             exceeds = (
@@ -510,6 +533,10 @@ def reduction_prompt(
 
 
 def _chunk_text(normalized: NormalizedTranscript, chunk: ChunkSpec) -> str:
+    if chunk.char_start is not None:
+        segment = normalized.transcript.segments[chunk.first_segment]
+        return (f"[{format_timestamp(segment.start_ms)}] "
+                + segment.text.strip()[chunk.char_start:chunk.char_end])
     return "\n".join(
         _render_segment(segment)
         for segment in normalized.transcript.segments[

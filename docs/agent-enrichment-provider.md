@@ -25,8 +25,48 @@ by2kb enrichment submit JOB_ID \
   --provider hermes --model HOST_PROFILE --runtime-version VERSION --json
 ```
 
-`next` either returns `needs_input` with one system/user prompt pair or `completed`
+`next` either returns `needs_input` with one operation ticket or `completed`
 with artifact paths. Each operation includes `timeout_s` and `max_output_bytes`.
+
+## File-backed CLI transport (0.5.3)
+
+By default, CLI `next` returns schema 2 with an operation ID, absolute `request_file`,
+SHA-256, byte count, estimated input tokens and prompt character counts. The complete
+system/user prompts live in that content-addressed UTF-8 JSON file, not stdout.
+The bundled Hermes adapter reads and verifies it in code before calling the host
+model, retaining the operation ID in code rather than asking the model to copy it.
+
+Manual Agents read one field at a time:
+
+```bash
+by2kb enrichment read --request-file REQUEST_FILE --field system_prompt --offset 0 --limit 1000 --json
+by2kb enrichment read --request-file REQUEST_FILE --field user_prompt --offset 0 --limit 1000 --json
+```
+
+For each field, advance to `next_offset` until `eof`. Offsets count Unicode characters,
+not bytes or tokens; pages contain at most 2,000 characters. Check `operation_id` on
+every page. If the host still truncates a page, repeat that offset with a smaller
+limit. Do not print the full request or submit a summary of only the first page.
+
+CLI `claim` likewise returns a small file reference to the legacy full manifest;
+staged callers should use only `next`, not `claim && next`. The paged `read` command
+reads operation files from `next`, not legacy claim manifests. Existing custom
+adapters can explicitly request `--inline-prompts` on `next` or `claim` for schema-1
+compatibility, accepting its output-size risk. Python service APIs remain unchanged.
+CLI and Agent must share filesystem access (or explicitly transfer and verify the
+request file); the file path is not a remote download URL.
+
+File transport does not expand model context. Program-planned transcript chunks and
+reductions still apply. Agent callbacks reject prompts over 24,000 estimated tokens
+without truncation; reduce configured budgets or oversized intermediate output when
+this happens. The estimate is heuristic, not a model-specific tokenizer guarantee.
+Request files have a 32 MiB safety limit; no transcript is shortened to meet it.
+Saved request files may contain private transcript content and belong in private job
+storage, not bug reports. Existing personalized Skills are not overwritten on upgrade;
+apply this transport guidance to them explicitly.
+
+## Submission contract
+
 `submit` accepts only the currently pending operation ID, non-empty UTF-8, the same
 runtime identity, and output within the advertised bound.
 
