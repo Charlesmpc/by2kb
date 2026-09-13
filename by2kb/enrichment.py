@@ -221,13 +221,8 @@ def external_manifest(request: EnrichmentRequest) -> dict:
         }
     chunk_operations = []
     for chunk in plan.chunks:
-        content = "\n".join(
-            f"[{segment.start_ms // 60000}:{(segment.start_ms // 1000) % 60:02d}] "
-            f"{segment.text.strip()}"
-            for segment in request.normalized.transcript.segments[
-                chunk.first_segment : chunk.last_segment + 1
-            ]
-        )
+        from by2kb.longform import _chunk_text
+        content = _chunk_text(request.normalized, chunk)
         system, user = chunk_prompt(request.normalized, chunk, content)
         chunk_operations.append(
             {

@@ -5,10 +5,13 @@ uses `LongFormEnrichmentPipeline` to prepare a grounded, bounded context first.
 
 ## Planning
 
-`TranscriptChunkPlanner` estimates tokens conservatively, groups only complete
-normalized transcript segments, and honors both token and duration budgets. A single
-oversized segment is marked `oversized` but is never split inside the segment. Short
-transcripts retain the existing two-call fast path.
+`TranscriptChunkPlanner` estimates tokens heuristically and normally groups complete
+normalized transcript segments using token and duration budgets. Since pipeline 1.1
+(by2kb 0.5.3), a segment exceeding the token budget is split into lossless character
+ranges (`char_start`, `char_end`), retaining its original segment index and time range.
+No finer timestamps are invented. The original normalized transcript is unchanged.
+Very small budgets that cannot fit timestamp overhead can still mark pieces oversized.
+Short transcripts retain the existing two-call fast path.
 
 Defaults can be overridden in `config.toml`:
 
@@ -32,6 +35,12 @@ Private intermediate cache entries live under
 content, segment plan, runtime provider/model, both Skill names and versions, prompt
 pipeline version, and reduction children. A retry therefore reuses successful chunks
 and reductions without refetching or retranscribing media.
+
+Pipeline 1.1 changes cache identity: older intermediate caches remain on disk but
+are not reused under the new plan. Existing archives are not automatically rewritten.
+The Agent path also guards complete prompts at 24,000 estimated tokens, including
+custom instructions and reductions. An excessive model response can cause a later
+reduction to hit this guard; the operation stops rather than silently dropping text.
 
 ## Provenance
 

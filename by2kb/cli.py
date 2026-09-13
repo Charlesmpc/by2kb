@@ -8,6 +8,7 @@ import typer
 
 from by2kb import __version__
 from by2kb.agent_install import install_hermes_plugin
+from by2kb.agent_requests import export_request, operation_ticket, read_request_page
 from by2kb.config import default_home, load_config
 from by2kb.doctor import run_doctor
 from by2kb.errors import By2kbError, ConfigError
@@ -434,11 +435,17 @@ def doctor(
 @enrichment_app.command("claim")
 def enrichment_claim(
     job_id: str = typer.Argument(...),
+    inline_prompts: bool = typer.Option(False, "--inline-prompts", help="Legacy full manifest output."),
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
     _configure_stdio()
     try:
-        payload = claim_external_enrichment(load_config(), job_id)
+        config = load_config()
+        payload = claim_external_enrichment(config, job_id)
+        if not inline_prompts:
+            ticket = export_request(config.home / "jobs" / job_id / "agent-requests", payload)
+            payload = {"schema_version": 2, "job_id": job_id, "status": "claimed",
+                       **ticket, "next_step": "Use enrichment next for bounded operations; do not print the full manifest"}
     except By2kbError as exc:
         _command_error(exc, json_out)
     if json_out:
@@ -482,20 +489,27 @@ def enrichment_next(
     provider: str = typer.Option(..., "--provider"),
     model: str = typer.Option(..., "--model"),
     runtime_version: str = typer.Option("", "--runtime-version"),
+    inline_prompts: bool = typer.Option(False, "--inline-prompts", help="Legacy inline prompts; may overflow host tool output."),
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
     """Advance staged Agent enrichment and return the next bounded operation."""
     _configure_stdio()
     try:
+        config = load_config()
         payload = asyncio.run(
             next_external_enrichment_operation(
-                load_config(),
+                config,
                 job_id,
                 provider=provider,
                 model=model,
                 runtime_version=runtime_version,
             )
         )
+        if payload["status"] == "needs_input" and not inline_prompts:
+            payload["operation"] = operation_ticket(
+                config.home / "jobs" / job_id / "agent-requests", payload["operation"]
+            )
+            payload["schema_version"] = 2
     except By2kbError as exc:
         _command_error(exc, json_out)
     if json_out:
@@ -534,7 +548,24 @@ def enrichment_submit(
     if json_out:
         typer.echo(json.dumps(payload, ensure_ascii=False))
     else:
-        typer.echo(f"Accepted Agent operation: {operation_id}")
+        typer.echo(f"Agent operation {payload['status']}: {operation_id}")
+
+
+@enrichment_app.command("read")
+def enrichment_read(
+    request_file: Path = typer.Option(..., "--request-file"),
+    field: str = typer.Option("user_prompt", "--field"),
+    offset: int = typer.Option(0, "--offset"),
+    limit: int = typer.Option(1000, "--limit"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    """Read one lossless prompt page; offsets count Unicode characters."""
+    _configure_stdio()
+    try:
+        payload = read_request_page(request_file, field, offset, limit)
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    typer.echo(json.dumps(payload, ensure_ascii=False) if json_out else payload["text"])
 
 
 @enrichment_app.command("fail")

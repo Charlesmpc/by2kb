@@ -168,6 +168,12 @@ class AgentCallbackClient:
         self.runtime_version = session.runtime_version
 
     async def complete(self, system: str, user: str) -> str:
+        from by2kb.longform import estimate_tokens
+        if estimate_tokens(system + user) > 24_000:
+            raise ConfigError(
+                "Agent operation exceeds the 24000 estimated-token safety limit; "
+                "reduce long_form input budgets or intermediate output size. No input was truncated."
+            )
         operation_id = _operation_id(
             provider=self.provider,
             model=self.model,

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.5.3 - 2026-09-13
+
+- Default Agent CLI next/claim to small, file-backed control envelopes instead of
+  dumping prompts into terminal output. Keep explicit --inline-prompts compatibility.
+- Add checksum-verified, bounded Unicode prompt paging with enrichment read; Hermes
+  loads and verifies request files directly while retaining operation IDs in code.
+- Split oversized single transcript segments into lossless character ranges; preserve
+  original transcript and timestamps. Pipeline 1.1 separates the updated cache identity.
+- Reject excessive Agent prompts explicitly rather than truncating them; update the
+  packaged Skill to read complete operations and never relabel stale responses.
+- Includes the 0.5.2 synchronization fixes, which were merged but not published separately.
+- See [0.5.3 release notes](docs/releases/0.5.3.md) for upgrade and compatibility details.
+
 ## 0.5.2 - 2026-09-13
 
 - Make identical Agent operation submissions idempotent; reject stale IDs and
