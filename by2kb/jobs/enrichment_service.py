@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from by2kb.agent_runtime import (
     AgentCallbackClient,
     AgentOperationRequired,
     AgentSessionStore,
+    OperationConflict,
     MAX_AGENT_OUTPUT_BYTES,
 )
 from by2kb.config import Config
@@ -19,6 +21,7 @@ from by2kb.enrichment import (
     write_external_artifacts,
 )
 from by2kb.errors import ConfigError
+from by2kb.operation_lock import serialized_enrichment
 from by2kb.jobs.model import JobStatus
 from by2kb.jobs.store import JobStore
 from by2kb.normalize import NormalizedTranscript
@@ -45,6 +48,7 @@ class EnrichmentResult:
         }
 
 
+@serialized_enrichment
 def claim_external_enrichment(config: Config, job_id: str) -> dict:
     store = JobStore(config.db_path)
     try:
@@ -65,6 +69,7 @@ def claim_external_enrichment(config: Config, job_id: str) -> dict:
         store.close()
 
 
+@serialized_enrichment
 async def next_external_enrichment_operation(
     config: Config,
     job_id: str,
@@ -141,6 +146,7 @@ async def next_external_enrichment_operation(
         store.close()
 
 
+@serialized_enrichment
 def submit_external_enrichment_operation(
     config: Config,
     job_id: str,
@@ -154,7 +160,8 @@ def submit_external_enrichment_operation(
     store = JobStore(config.db_path)
     try:
         job, task, _request = _load_external_request(store, config, job_id)
-        if task["status"] not in {"pending", "claimed", "failed_retryable"}:
+        completed = task["status"] == "completed" or job.status == JobStatus.COMPLETED
+        if task["status"] not in {"pending", "claimed", "failed_retryable", "completed"}:
             raise ConfigError(
                 f"Agent enrichment cannot accept output from status {task['status']}"
             )
@@ -177,7 +184,35 @@ def submit_external_enrichment_operation(
         pending = session.pending()
         if pending and pending.id == operation_id and pending.system_prompt == TITLE_SYSTEM:
             parse_title_response(content, pending.user_prompt)
-        session.submit(operation_id, content)
+        try:
+            if completed:
+                saved = session.response(operation_id)
+                if saved is None or saved != content:
+                    reason = "operation_mismatch" if saved is None else "operation_content_conflict"
+                    raise OperationConflict(reason, operation_id)
+                return _agent_envelope(
+                    job_id, status="completed", artifacts=_artifact_map(store, job_id)
+                )
+            accepted = session.submit(operation_id, content)
+        except OperationConflict as exc:
+            logging.getLogger(__name__).warning(
+                "Agent submit conflict job=%s session=%s submitted=%s expected=%s reason=%s",
+                job_id, session.path.name, exc.submitted_id, exc.expected_id, exc.reason,
+            )
+            result = _agent_envelope(
+                job_id, status=exc.reason, artifacts=_artifact_map(store, job_id)
+            )
+            result["error"] = {
+                "reason_code": exc.reason,
+                "submitted_operation_id": exc.submitted_id,
+                "expected_operation_id": exc.expected_id,
+                "next_action": "query_status_then_next; never relabel an old result",
+            }
+            return result
+        if accepted == "already_accepted":
+            return _agent_envelope(
+                job_id, status=accepted, artifacts=_artifact_map(store, job_id)
+            )
         store.update_enrichment_task(
             job_id,
             "claimed",
@@ -195,6 +230,7 @@ def submit_external_enrichment_operation(
         store.close()
 
 
+@serialized_enrichment
 async def complete_external_enrichment(
     config: Config,
     job_id: str,
@@ -259,6 +295,7 @@ async def complete_external_enrichment(
         store.close()
 
 
+@serialized_enrichment
 def fail_external_enrichment(
     config: Config,
     job_id: str,
@@ -274,6 +311,14 @@ def fail_external_enrichment(
             raise ConfigError(f"external enrichment task not found: {job_id}")
         if task["executor"] != "external_agent":
             raise ConfigError(f"job does not use external agent enrichment: {job_id}")
+        if job.status == JobStatus.COMPLETED or task["status"] == "completed":
+            return EnrichmentResult(
+                job_id, JobStatus.COMPLETED.value, _artifact_map(store, job_id)
+            )
+        if job.cancel_requested or job.status == JobStatus.CANCELLED:
+            return EnrichmentResult(
+                job_id, JobStatus.CANCELLED.value, _artifact_map(store, job_id)
+            )
         task_status = "failed_retryable" if retryable else "failed_terminal"
         job_status = (
             JobStatus.FAILED_RETRYABLE if retryable else JobStatus.FAILED_TERMINAL

@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Git tag to publish (for example, v0.5.1)
+        description: Git tag to publish (for example, v0.5.2)
         required: true
-        default: v0.5.1
+        default: v0.5.2
         type: string
 
 permissions:

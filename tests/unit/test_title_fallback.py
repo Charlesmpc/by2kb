@@ -94,14 +94,14 @@ async def test_api_generates_title_before_summaries_and_rewrites_artifacts(
     for kind in ("raw_md", "abstract_md", "updated_md"):
         path = result.artifacts[kind]
         assert "Database Index Tradeoffs" in path.name
-        assert "title_source: generated" in path.read_text()
-        assert "# Database Index Tradeoffs" in path.read_text()
-    source = json.loads(result.artifacts["source_json"].read_text())
+        assert "title_source: generated" in path.read_text(encoding="utf-8")
+        assert "# Database Index Tradeoffs" in path.read_text(encoding="utf-8")
+    source = json.loads(result.artifacts["source_json"].read_text(encoding="utf-8"))
     assert source["source"]["title"] == "Database Index Tradeoffs"
     assert source["source"]["title_source"] == source["title_source"] == "generated"
     assert source["fixture"] is True
     assert (
-        json.loads(result.artifacts["transcript_json"].read_text())["source"]["title"]
+        json.loads(result.artifacts["transcript_json"].read_text(encoding="utf-8"))["source"]["title"]
         == "Database Index Tradeoffs"
     )
     assert artifacts["raw_md"].read_bytes() == original_bytes
@@ -124,7 +124,7 @@ async def test_live_agent_title_operation_validates_before_accept_and_finishes(
     store = JobStore(config.db_path)
     paths = {a["kind"]: Path(a["path"]) for a in store.artifacts(job_id)}
     store.close()
-    data = json.loads(paths["transcript_json"].read_text())
+    data = json.loads(paths["transcript_json"].read_text(encoding="utf-8"))
     data["source"]["title"] = "BV1xx411c7mD"
     paths["transcript_json"].write_text(json.dumps(data))
     before = {k: p.read_bytes() for k, p in paths.items()}
@@ -241,12 +241,12 @@ def test_source_payload_provenance_is_preserved(tmp_path):
     paths = write_artifacts(
         tmp_path, source_payload={"title_source": "generated"}, normalized=normalized
     )
-    assert json.loads(paths["source_json"].read_text())["title_source"] == "generated"
+    assert json.loads(paths["source_json"].read_text(encoding="utf-8"))["title_source"] == "generated"
     assert (
-        json.loads(paths["transcript_json"].read_text())["source"]["title_source"]
+        json.loads(paths["transcript_json"].read_text(encoding="utf-8"))["source"]["title_source"]
         == "generated"
     )
-    assert "title_source: generated" in paths["raw_md"].read_text()
+    assert "title_source: generated" in paths["raw_md"].read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio
@@ -264,7 +264,7 @@ async def test_legacy_complete_cannot_bypass_missing_title(tmp_path):
         )
     )
     store.close()
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     data["source"]["title"] = ""
     path.write_text(json.dumps(data))
     output = tmp_path / "summary.md"
@@ -287,7 +287,7 @@ async def test_raw_only_duplicate_and_explicit_reenrich(pipeline):
     config, run = pipeline
     first = await run()
     path = Path(first.artifacts["transcript_json"])
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     data["source"]["title"] = "BV1xx411c7mD"
     data["source"].pop("title_source", None)
     path.write_text(json.dumps(data))
@@ -361,7 +361,7 @@ async def test_api_failure_keeps_published_inputs_unchanged(tmp_path, failure):
     store = JobStore(config.db_path)
     paths = {a["kind"]: Path(a["path"]) for a in store.artifacts(job_id)}
     store.close()
-    normalized = NormalizedTranscript.model_validate_json(paths["transcript_json"].read_text())
+    normalized = NormalizedTranscript.model_validate_json(paths["transcript_json"].read_text(encoding="utf-8"))
     normalized.source.title = ""
     before = {kind: path.read_bytes() for kind, path in paths.items()}
     request = create_enrichment_request(
@@ -404,7 +404,7 @@ async def test_completed_reenrich_retires_stale_names_and_preserves_provenance(p
     config, run = pipeline
     first = await run()
     transcript = Path(first.artifacts["transcript_json"])
-    data = json.loads(transcript.read_text())
+    data = json.loads(transcript.read_text(encoding="utf-8"))
     data["source"]["title"] = "BV1xx411c7mD"
     transcript.write_text(json.dumps(data))
     old_raw = Path(first.artifacts["raw_md"])
@@ -435,7 +435,7 @@ async def test_completed_reenrich_retires_stale_names_and_preserves_provenance(p
         Path(published[kind]).name for kind in ("raw_md", "abstract_md", "updated_md")
     )
     for kind in ("source_json", "transcript_json"):
-        source = json.loads(Path(published[kind]).read_text())["source"]
+        source = json.loads(Path(published[kind]).read_text(encoding="utf-8"))["source"]
         assert source["title"] == "Database Transaction Basics"
         assert source["title_source"] == "generated"
         assert "original_title" not in source
@@ -443,4 +443,4 @@ async def test_completed_reenrich_retires_stale_names_and_preserves_provenance(p
     step = await next_external_enrichment_operation(config, first.job_id, **kwargs)
     if step["status"] != "completed":
         assert "concise readable video title" not in step["operation"]["system_prompt"]
-    assert json.loads(transcript.read_text())["source"]["title_source"] == "generated"
+    assert json.loads(transcript.read_text(encoding="utf-8"))["source"]["title_source"] == "generated"
