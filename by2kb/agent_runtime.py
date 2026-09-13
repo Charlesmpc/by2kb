@@ -6,6 +6,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from by2kb.errors import ConfigError
+from by2kb.operation_lock import exclusive_file
+
+
+class OperationConflict(ConfigError):
+    def __init__(self, reason: str, submitted_id: str, expected_id: str | None = None):
+        super().__init__(reason)
+        self.reason = reason
+        self.submitted_id = submitted_id
+        self.expected_id = expected_id
+
 
 SESSION_SCHEMA_VERSION = 1
 MAX_AGENT_OUTPUT_BYTES = 2 * 1024 * 1024
@@ -81,29 +91,36 @@ class AgentSessionStore:
             return None
 
     def set_pending(self, operation: AgentOperation) -> None:
-        payload = self._read()
-        payload["pending"] = operation.to_dict()
-        self._write(payload)
+        with exclusive_file(self.path.with_suffix(".lock")):
+            payload = self._read()
+            payload["pending"] = operation.to_dict()
+            self._write(payload)
 
-    def submit(self, operation_id: str, content: str) -> None:
-        pending = self.pending()
-        if pending is None:
-            raise ConfigError("no Agent enrichment operation is awaiting output")
-        if operation_id != pending.id:
-            raise ConfigError(
-                f"unexpected Agent operation id: {operation_id}; expected {pending.id}"
-            )
+    def submit(self, operation_id: str, content: str) -> str:
+        with exclusive_file(self.path.with_suffix(".lock")):
+            return self._submit_locked(operation_id, content)
+
+    def _submit_locked(self, operation_id: str, content: str) -> str:
+        payload = self._read()
+        pending = payload.get("pending")
+        if operation_id in payload["responses"]:
+            if payload["responses"][operation_id] == content:
+                return "already_accepted"
+            raise OperationConflict("operation_content_conflict", operation_id)
+        expected_id = pending.get("id") if isinstance(pending, dict) else None
+        if expected_id is None or operation_id != expected_id:
+            raise OperationConflict("operation_mismatch", operation_id, expected_id)
         encoded = content.encode("utf-8")
         if not content.strip():
             raise ConfigError("Agent enrichment output must not be empty")
-        if len(encoded) > pending.max_output_bytes:
+        if len(encoded) > pending["max_output_bytes"]:
             raise ConfigError(
-                f"Agent enrichment output exceeds {pending.max_output_bytes} bytes"
+                f"Agent enrichment output exceeds {pending['max_output_bytes']} bytes"
             )
-        payload = self._read()
         payload["responses"][operation_id] = content
         payload["pending"] = None
         self._write(payload)
+        return "accepted"
 
     def _read(self) -> dict:
         try:

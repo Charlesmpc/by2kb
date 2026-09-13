@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pytest
 
 from by2kb.config import Config, LongFormConfig
-from by2kb.errors import ConfigError
 from by2kb.integrations.hermes import (
     _VIDEO_URL,
     _run_staged_enrichment,
@@ -163,15 +162,15 @@ async def test_agent_session_identity_prevents_cross_runtime_submission(tmp_path
     output = tmp_path / "output.md"
     output.write_text("# Result", encoding="utf-8")
 
-    with pytest.raises(ConfigError, match="no Agent enrichment operation"):
-        submit_external_enrichment_operation(
-            config,
-            job_id,
-            operation_id=step["operation"]["id"],
-            output_path=output,
-            provider="hermes",
-            model="profile-b",
-        )
+    rejected = submit_external_enrichment_operation(
+        config,
+        job_id,
+        operation_id=step["operation"]["id"],
+        output_path=output,
+        provider="hermes",
+        model="profile-b",
+    )
+    assert rejected["status"] == "operation_mismatch"
 
 
 def test_hermes_adapter_uses_bounded_next_submit_contract(tmp_path, monkeypatch):

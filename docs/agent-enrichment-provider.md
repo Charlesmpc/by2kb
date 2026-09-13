@@ -30,6 +30,29 @@ with artifact paths. Each operation includes `timeout_s` and `max_output_bytes`.
 `submit` accepts only the currently pending operation ID, non-empty UTF-8, the same
 runtime identity, and output within the advertised bound.
 
+As of 0.5.2, callers must inspect the JSON `status` returned by `submit`, even
+when the CLI exits successfully:
+
+- `accepted`: new response saved.
+- `already_accepted`: the same ID and exact content were saved earlier; no mutation.
+- `completed`: an identical replay after completion; use the returned artifacts.
+- `operation_mismatch`: no matching pending operation. Query status and `next`,
+  then generate fresh content for that operation. Never relabel an old answer.
+- `operation_content_conflict`: the ID already has a different saved answer.
+  Stop and inspect the task; do not overwrite the accepted response.
+
+Conflicts include `error.reason_code`, submitted/expected operation IDs and a
+recovery hint. Diagnostic logs contain IDs, not prompts or response content.
+Local process locks serialize enrichment mutations per job. A busy error means
+another operation owns the lock; retry later, not in a tight loop. The lock is
+released by the OS on process exit, and is not held while the host calls its LLM.
+Use a local filesystem for job/session state; distributed locking is not provided.
+
+The bundled Hermes adapter retries operation mismatches at most three times with
+fresh `status`/`next` calls and fresh model output. Host-side errors no longer call
+`enrichment fail` automatically. It rechecks status, reports already-completed
+results as success, and otherwise leaves saved progress available for resumption.
+
 The runtime identity, prompt content, selected Skills, transcript/plan hashes, and
 pipeline version participate in operation/cache identity. Provider, model, runtime
 version, plan hierarchy, and cache provenance are recorded; OAuth tokens and hidden

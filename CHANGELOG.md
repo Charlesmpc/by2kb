@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.5.2 - 2026-09-13
+
+- Make identical Agent operation submissions idempotent; reject stale IDs and
+  conflicting content without overwriting saved responses or pending operations.
+- Serialize external enrichment mutations across local processes on Windows and
+  POSIX. Contending callers receive a retryable-by-caller busy diagnostic.
+- Let Hermes resynchronize stale operations with bounded retries and freshly
+  generated output; never attach an old answer to a new operation ID.
+- Recheck task status before error notifications, preserve completed results on
+  late failure reports, and retain resumable progress on host-side errors (#41).
+- See [0.5.2 notes](docs/releases/0.5.2.md) for compatibility and validation limits.
+
 ## 0.5.1 - 2026-09-12
 
 - Generate a concise, transcript-grounded title before enrichment when metadata is

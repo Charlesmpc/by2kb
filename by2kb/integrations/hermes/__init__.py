@@ -110,23 +110,35 @@ def _process(ctx, loop, adapter, chat_id, reply_to, url):
     except Exception as exc:
         if job_id:
             try:
-                _run_by2kb(
-                    [
-                        "enrichment",
-                        "fail",
-                        job_id,
-                        "--message",
-                        str(exc),
-                        "--retryable",
-                        "--json",
-                    ]
-                )
+                snapshot = _run_by2kb(["status", job_id, "--json"])
+                if snapshot.get("state") == "completed":
+                    artifacts = snapshot.get("artifacts") or {}
+                    if isinstance(artifacts, list):
+                        artifacts = {a["kind"]: a["path"] for a in artifacts}
+                    _send(
+                        loop, adapter, chat_id,
+                        _success_message(artifacts, _read_abstract(artifacts)), reply_to,
+                    )
+                    return
+                if snapshot.get("state") == "cancelled":
+                    _send(loop, adapter, chat_id, "视频处理任务已取消。", reply_to)
+                    return
             except Exception:
                 pass
-        _send(loop, adapter, chat_id, f"视频处理失败：{exc}", reply_to)
+            # A host-side step failure is not authority to overwrite shared job
+            # state: another worker may have advanced or completed it already.
+            _send(
+                loop, adapter, chat_id,
+                f"本次处理步骤未完成，已保存的转写和摘要进度不会清除。"
+                f"任务 {job_id}，请查询状态或重试。",
+                reply_to,
+            )
+        else:
+            _send(loop, adapter, chat_id, f"视频处理失败：{exc}", reply_to)
 
 
 def _run_staged_enrichment(ctx, job_id):
+    resyncs = 0
     provider = str(getattr(ctx.llm, "provider", None) or "hermes")
     model = str(getattr(ctx.llm, "model", None) or "host-profile")
     runtime_version = str(getattr(ctx.llm, "runtime_version", None) or "")
@@ -162,7 +174,7 @@ def _run_staged_enrichment(ctx, job_id):
         with tempfile.TemporaryDirectory(prefix="by2kb-agent-") as temporary:
             output = Path(temporary) / "operation.md"
             output.write_text(text, encoding="utf-8")
-            _run_by2kb(
+            submitted = _run_by2kb(
                 [
                     "enrichment",
                     "submit",
@@ -174,6 +186,22 @@ def _run_staged_enrichment(ctx, job_id):
                     *identity,
                     "--json",
                 ]
+            )
+        submission_status = submitted.get("status")
+        if submission_status == "completed":
+            return submitted
+        if submission_status == "operation_mismatch":
+            resyncs += 1
+            if resyncs > 3:
+                raise RuntimeError(
+                    "Agent operation state changed repeatedly; stop and query task status."
+                )
+            # Discard the old output. Obtain a fresh operation and generate its
+            # own content; never attach old text to the new operation ID.
+            continue
+        if submission_status not in {"accepted", "already_accepted"}:
+            raise RuntimeError(
+                "Agent operation submission was not accepted; query task status."
             )
     raise RuntimeError("by2kb Agent enrichment exceeded 512 bounded operations")
 
