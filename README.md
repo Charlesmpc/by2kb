@@ -11,7 +11,16 @@ agent such as Hermes; `by2kb` handles media retrieval and the selected local or 
 ASR provider, while the agent uses its existing model authentication to produce both summaries.
 Standalone users can run the same pipeline with their own OpenAI-compatible API key.
 
-> **Current release: v0.4.2.** Agent-guided installation, a cloud-free local Whisper
+## See it in action
+
+**Copy a video link. Send it to Hermes. Keep the knowledge.**
+
+https://github.com/user-attachments/assets/834f9e97-46f5-42a3-aeb4-66ee1a7f1020
+
+*19-second demo: Bilibili → Hermes on Telegram → knowledge notes. Chinese-language
+example; processing waits have been cut for brevity, not shown in real time. Sound optional.*
+
+> **[Latest release](https://github.com/Charlesmpc/by2kb/releases/latest).** Agent-guided installation, a cloud-free local Whisper
 > default, upgrade-safe personalization, Bilibili/YouTube ingestion, Agent/API
 > enrichment, task control, and the Hermes plugin are implemented. A resident service,
 > native Telegram/Lark bots, and remote knowledge-base sinks remain planned.
