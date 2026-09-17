@@ -95,6 +95,11 @@ by2kb agent install hermes
 hermes gateway restart
 ```
 
+These commands are for the legacy copy-based adapter installation. If Hermes
+already manages your by2kb plugin through Git or the catalog, do not reinstall it
+with the copy installer. See [native plugin setup](docs/agent-integration.md#native-hermes-installation-and-first-setup)
+and [upgrade ownership](docs/upgrading.md#managed-code). Catalog submission is pending.
+
 Now an authorized user can send a Bilibili, `b23.tv`, YouTube, or `youtu.be` URL to
 the Telegram Hermes bot.
 The plugin acknowledges immediately, runs transcription in the background, calls the
@@ -411,9 +416,10 @@ When no usable transcript exists:
 4. store provenance, timing, model, and confidence metadata;
 5. continue through the same raw/updated pipeline.
 
-The download and ASR providers are intentionally undecided. Platform terms, account
-security, regional restrictions, cost, and deployment environment must be evaluated
-before enabling this path.
+Implemented media routes include native Bilibili acquisition and optional yt-dlp.
+ASR supports local faster-whisper by default and optional cloud Doubao AUC. Platform
+terms, account security, regional restrictions, cost, and deployment environment
+must still be evaluated before use.
 
 A proven Doubao AUC reference flow is included for provider design: local audio is
 staged in a private Volcengine TOS bucket, exposed through a 10-minute presigned URL,
@@ -424,11 +430,11 @@ runnable [`examples/doubao_auc_tos_asr.py`](examples/doubao_auc_tos_asr.py).
 
 #### Phase 2b: browser-based source capture
 
-A browser session can reach what plain HTTP cannot: the watch page itself already
-negotiates a playable stream. When a video has no native transcript, the service can:
+A browser session can sometimes reach a playable stream when plain HTTP fails.
+The implemented opt-in Bilibili fallback uses a dedicated Playwright Chromium session:
 
-1. open the watch URL in a **headless browser** (Playwright/CDP or a managed browser
-   service) using the user's own authenticated profile where needed;
+1. open the watch URL in a **headless browser**, using the dedicated session's login
+   state where the site requires it;
 2. extract the media source the page actually plays — from the player object in the
    page (e.g. the player response / `playurl` data) or by observing network requests —
    and download it (typically a segmented DASH/HLS stream assembled with ffmpeg);
@@ -526,8 +532,7 @@ local SQLite store. It runs on a laptop, an agent server, or any host that can s
 process.
 
 A resident service and remote client mode are planned for higher-volume deployments;
-`BY2KB_SERVER_URL`, HTTP submission, queues and remote workers are not implemented in
-v0.4.0.
+`BY2KB_SERVER_URL`, HTTP submission, queues and remote workers remain unimplemented.
 
 ### Who needs the service?
 
@@ -552,8 +557,9 @@ For agent-first users, the adapter of record is a **plugin** on the agent side, 
   deterministically, verifies the sender through Hermes authorization, spawns
   `by2kb ingest` in a background thread, acknowledges through the agent's own IM
   adapter, and returns `skip` so the trigger does not enter a model turn;
-- after transcription, the plugin calls Hermes' host-owned LLM twice using the
-  packaged enrichment profiles, without a nested agent loop or separate LLM key;
+- after transcription, the plugin calls Hermes' host-owned LLM for bounded staged
+  operations (including chunking/reduction when needed), without a nested agent loop
+  or separate LLM key;
 - a companion skill covers the phrased case — "save this video to my KB" — where the
   model invokes the CLI through its terminal tool. MCP is not required when both
   programs share a host and filesystem.
@@ -629,8 +635,8 @@ machine.
 - [ ] Remote Job API, queue, and worker service.
 - [x] Telegram input through the Hermes plugin.
 - [ ] Standalone Telegram input adapter for users without an agent.
-- [ ] YouTube native-transcript adapter.
-- [ ] Timestamp-preserving normalization.
+- [x] YouTube caption retrieval through the optional yt-dlp provider.
+- [x] Timestamp-preserving normalization.
 - [x] Filesystem/Obsidian Markdown sink (sink contract pinned in
       `docs/tech-design-m1.md` §3.7).
 - [x] Raw, short-abstract, and long-form study-note generation.
@@ -660,10 +666,11 @@ machine.
 - [x] Hosted ASR provider interface and Doubao AUC implementation (contract pinned in
       `docs/tech-design-m1.md` §3.6; see
       `docs/reference/doubao-auc-tos-asr.md`).
-- [ ] Additional hosted and self-hosted ASR providers.
+- [x] Local faster-whisper ASR provider.
+- [ ] Additional ASR providers beyond faster-whisper and Doubao.
 - [ ] Segment-level alignment and confidence metadata.
 - [ ] Policy and deployment controls per platform/provider.
-- [ ] Phase 2b: headless-browser source capture adapter (opt-in), extracting the
+- [x] Phase 2b: Bilibili browser source capture adapter (opt-in), extracting the
       playable media source from the watch page when no native transcript exists,
       with `browser_capture + asr` provenance.
 

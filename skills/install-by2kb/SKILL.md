@@ -12,6 +12,10 @@ Agent. Do not clone or inspect the by2kb source repository as an installation me
 
 1. Confirm the target machine is controlled by the user.
 2. Check for Python 3.12+, `pipx`, `ffmpeg`, `ffprobe`, `by2kb`, and the Agent host.
+   Check `uv tool list` too if uv is available; keep using the existing package
+   manager, rather than creating a second installation. A command missing on Windows
+   may be a PATH issue: inspect `Get-Command`, `uv tool dir --bin`, or
+   `py -m pipx environment` as applicable, and check the gateway's environment.
 3. If by2kb already has configuration, do not replace it. Run
    `by2kb doctor --json`, explain any failures, and preserve the current ASR and
    knowledge-base choices unless the user asks to change them.
@@ -28,8 +32,11 @@ Use this path unless the user explicitly requests cloud ASR:
 3. Before downloading a Whisper model, tell the user its name and that the download
    can be large. Continue only after the user agrees, then run
    `by2kb models install`.
-4. For Hermes, run `by2kb agent install hermes`, followed by
-   `by2kb doctor --json`.
+4. For Hermes, inspect `hermes plugins list` first. If the by2kb plugin is already
+   installed, keep it and use `skill_view("by2kb:install-by2kb")` when available.
+   Only for a new legacy/copy-based adapter install, run `by2kb agent install hermes`.
+   Then run `by2kb doctor --json`. Catalog submission is pending; do not assume the
+   bare catalog name is already available.
 5. Restarting a running Agent can interrupt the current conversation. Ask before
    restarting it, then verify the gateway and ask the user to send one test video URL.
 
@@ -47,8 +54,11 @@ models, custom Skills, and every knowledge artifact.
 1. Inspect `by2kb version`, `pipx list`, and `by2kb doctor --json` first.
 2. Run `pipx upgrade by2kb`. Do not run `by2kb init`, `by2kb init --force`, or rewrite
    configuration during an ordinary upgrade.
-3. Refresh only the managed Hermes adapter with
-   `by2kb agent install hermes --force`.
+3. Inspect `hermes plugins list` and the installation source. For a catalog plugin,
+   use `hermes plugins update by2kb`; for a Git-pinned plugin, let the user choose a
+   new exact commit through Hermes. Never overwrite either with the CLI installer.
+   Only a legacy/copy-based adapter may be refreshed with
+   `by2kb agent install hermes --force`. If ownership is unclear, stop and inspect it.
 4. Run `by2kb doctor --json` again and report any migration or restart requirement.
 
 The Hermes adapter directory is program-owned. Put a personalized runtime Skill at

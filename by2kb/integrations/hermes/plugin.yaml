@@ -1,7 +1,11 @@
 name: by2kb
-version: "0.4.0"
+version: "0.6.0"
 description: Transcribe Bilibili/YouTube videos or local media and enrich them with the Hermes host model.
 author: Charlesmpc
 kind: standalone
-hooks:
+license: MIT
+homepage: https://github.com/Charlesmpc/by2kb
+provides_tools: []
+provides_hooks:
   - pre_gateway_dispatch
+requires_env: []

@@ -24,6 +24,11 @@ _VIDEO_URL = re.compile(
 
 
 def register(ctx):
+    ctx.register_skill(
+        "install-by2kb",
+        Path(__file__).parent / "skills" / "install-by2kb" / "SKILL.md",
+        description="Install, configure, update, or diagnose the by2kb CLI without replacing this Hermes plugin.",
+    )
     skill = _video_skill_path()
     ctx.register_skill(
         "video-to-knowledge",
@@ -250,7 +255,12 @@ def _load_operation(ticket):
 def _run_by2kb(arguments, *, allow_codes={0}):
     executable = os.environ.get("BY2KB_COMMAND") or shutil.which("by2kb")
     if not executable:
-        raise RuntimeError("by2kb command not found; install it with pipx first")
+        raise RuntimeError(
+            "by2kb CLI not found on the Hermes process PATH. "
+            "Ask Hermes to load skill_view('by2kb:install-by2kb') for setup. "
+            "If already installed, check its executable path and restart the gateway "
+            "after fixing PATH; do not reinstall or overwrite existing configuration."
+        )
     completed = subprocess.run(
         [executable, *arguments],
         capture_output=True,

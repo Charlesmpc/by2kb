@@ -19,14 +19,35 @@ passes `--force`; installers and Agents must never add that flag during an upgra
 
 ## Managed code
 
-The pipx virtual environment and `~/.hermes/plugins/by2kb` are program-owned. Refresh a
-Hermes installation after upgrading the package:
+The CLI environment and plugin code have separate owners. Upgrade the CLI using
+the package manager that installed it (`pipx upgrade by2kb` or `uv tool upgrade by2kb`).
+Inspect `hermes plugins list` before updating the adapter:
+
+- **Catalog install:** use `hermes plugins update by2kb`, which follows the reviewed
+  catalog pin. Do not overwrite it with `by2kb agent install`.
+- **Git-pinned install:** choose a new full SHA explicitly using Hermes install.
+  An ordinary update must not move that pin.
+- **Legacy copy install:** refresh the adapter from the CLI package as below.
+
+For a legacy pipx + copy installation only:
 
 ```bash
 pipx upgrade by2kb
 by2kb agent install hermes --force
 by2kb doctor
 ```
+
+The copy installer refuses to overwrite an adapter recorded in Hermes'
+`plugins/.install-metadata.json`, carrying `.hermes-catalog.json`, or containing a
+Git checkout, even with `--force`. Invalid ownership metadata requires inspection,
+not deletion. PyPI upgrades do not automatically update a directory-managed plugin.
+Use the intended Hermes profile for all commands; `--hermes-home` also applies to
+the copy installer's enable step. Ask before restarting a running gateway.
+
+The plugin's staged request-file workflow requires by2kb CLI 0.5.3+. Check release
+notes before adopting a future incompatible CLI or plugin version. Catalog
+submission is pending; the bare `hermes plugins install by2kb` command is not yet
+advertised as available.
 
 Do not personalize files inside the managed plugin directory. Put a Hermes runtime
 Skill at `$BY2KB_HOME/skills/video-to-knowledge/SKILL.md`, or set
