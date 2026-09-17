@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -15,8 +16,10 @@ def install_hermes_plugin(
     force: bool = False,
     enable: bool = True,
 ) -> Path:
-    base = hermes_home or Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))
+    base = (hermes_home or Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes"))).expanduser().resolve()
     target = base / "plugins" / "by2kb"
+    # Never replace a git/catalog pin owned by Hermes, even with --force.
+    _check_install_ownership(base, target)
     if target.exists():
         if not force:
             raise ConfigError(
@@ -47,8 +50,31 @@ def install_hermes_plugin(
             errors="replace",
             timeout=30,
             check=False,
+            env={**os.environ, "HERMES_HOME": str(base)},
         )
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout).strip()
             raise ConfigError(f"Hermes could not enable by2kb: {detail}")
     return target
+
+
+def _check_install_ownership(base: Path, target: Path) -> None:
+    if target.is_symlink() or target.resolve() != base / "plugins" / "by2kb":
+        raise ConfigError("Refusing to replace a linked Hermes plugin directory")
+    metadata_path = base / "plugins" / ".install-metadata.json"
+    if metadata_path.exists():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ConfigError("Cannot verify Hermes plugin ownership; inspect .install-metadata.json before installing") from exc
+        if not isinstance(metadata, dict):
+            raise ConfigError("Cannot verify Hermes plugin ownership: invalid install metadata")
+        managed = "by2kb" in metadata
+    else:
+        managed = False
+    if managed or (target / ".hermes-catalog.json").exists() or (target / ".git").exists():
+        raise ConfigError(
+            "by2kb is managed by Hermes; refusing to overwrite its reviewed/pinned code. "
+            "For catalog installs use `hermes plugins update by2kb`; for a pinned Git "
+            "install use Hermes install with an explicit --ref. Do not use by2kb --force."
+        )

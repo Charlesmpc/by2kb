@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.6.0 - 2026-09-17
+
+- Prepare the native Hermes plugin for catalog admission: correct `provides_hooks`,
+  synchronize its version, and declare its homepage, license and empty tool/env requirements.
+- Bundle and register `by2kb:install-by2kb` alongside the runtime Skill. Explain
+  independent CLI installation, local-first setup, Windows PATH, optional cloud/browser
+  components, and preservation of existing configuration.
+- Refuse to overwrite Hermes-managed Git/catalog installs from the copy installer,
+  even with `--force`; preserve source pins and metadata. Enable copied plugins in
+  the explicitly selected Hermes home, not an unrelated active profile.
+- Add real, isolated Hermes installer validation and ownership regression tests.
+- Refresh installation/upgrade docs and outdated README implementation status.
+- Catalog submission is separate from release; the bare catalog name is not available
+  until the upstream entry is accepted. See [0.6.0 release notes](docs/releases/0.6.0.md).
+
 ## 0.5.3 - 2026-09-13
 
 - Default Agent CLI next/claim to small, file-backed control envelopes instead of

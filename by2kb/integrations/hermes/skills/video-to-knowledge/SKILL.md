@@ -13,8 +13,8 @@ bounded, program-planned enrichment operations. Do not clone or inspect the by2k
 
 For an explicit/manual request:
 
-1. Check installation with `by2kb version`. If missing, use the packaged
-   `install-by2kb` Skill. The default installation is
+1. Check installation with `by2kb version` (0.5.3+). If missing or setup is incomplete,
+   load the bundled `skill_view("by2kb:install-by2kb")`. The default installation is
    `pipx install by2kb[asr-whisper,youtube]` with
    `by2kb init --preset agent-local`.
 2. Use cloud Doubao ASR only when the user explicitly selects it. Never ask the user

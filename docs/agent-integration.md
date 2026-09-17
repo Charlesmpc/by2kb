@@ -150,6 +150,8 @@ The Hermes plugin is packaged inside the `by2kb` wheel and installs as:
   plugin.yaml
   __init__.py
   skills/
+    install-by2kb/
+      SKILL.md
     video-to-knowledge/
       SKILL.md
 ```
@@ -259,8 +261,80 @@ pipx install '/absolute/path/to/by2kb[asr-whisper,youtube]'
 `by2kb agent install hermes` copies the plugin into the active `HERMES_HOME`, enables it
 through the Hermes CLI, and asks the user to restart the gateway.
 
-The installed plugin directory is program-owned and may be replaced during upgrades.
+For legacy copy installs, the installed plugin directory is program-owned and may
+be replaced during upgrades. Git/catalog installs are instead owned by Hermes and
+must not be replaced by the copy installer, even with `--force`.
 A personalized Hermes runtime Skill belongs at
 `$BY2KB_HOME/skills/video-to-knowledge/SKILL.md` (or the path named by
 `BY2KB_HERMES_SKILL`); it takes precedence over the packaged copy and remains outside
 the replacement boundary. See [Upgrading](upgrading.md) for the complete state contract.
+
+### Native Hermes installation and first setup
+
+The native plugin lives at `by2kb/integrations/hermes`, with no import dependency on
+the by2kb Python package inside Hermes. It invokes the separately installed CLI.
+The manifest declares `provides_hooks: [pre_gateway_dispatch]`; `hooks` alone does
+not satisfy the catalog capability validator.
+
+Before catalog admission, a maintainer can test a **published, reviewed commit**:
+
+```bash
+hermes plugins install "Charlesmpc/by2kb/by2kb/integrations/hermes" --ref <full-40-character-commit-sha> --no-enable
+hermes plugins enable by2kb
+```
+
+This is a custom Git install, not a catalog endorsement. Do not use a placeholder
+SHA verbatim, and do not suggest `hermes plugins install by2kb` until the catalog PR
+has been accepted. Choose a commit from v0.6.0 or later for the bundled setup Skill
+and native-install ownership protection.
+
+Installation bundles two explicit-load Skills:
+
+- `skill_view("by2kb:install-by2kb")`: CLI installation, configuration, diagnostics,
+  PATH troubleshooting and upgrade ownership;
+- `skill_view("by2kb:video-to-knowledge")`: manual ingestion and staged enrichment.
+
+Hermes plugin Skills are namespaced and explicitly loaded; registration does not
+guarantee automatic discovery from a vague request. Use this onboarding prompt:
+
+```text
+Load skill_view("by2kb:install-by2kb") and help me configure by2kb.
+Preserve my existing configuration. For a new installation, use local Whisper
+and ask where to save my Markdown knowledge base.
+```
+
+The guide checks for an existing pipx/uv installation before installing anything,
+requires Python 3.12+ and CLI 0.5.3+, and asks before dependency/model installation
+or a gateway restart. It defaults to local Whisper, leaves cloud ASR and the browser
+fallback optional, and never asks for credentials in chat. Installing the plugin
+alone does not install the CLI, ffmpeg, a model, or user configuration.
+
+### Repeatable installation validation
+
+With a trusted Hermes source checkout and its plugin-installer dependencies:
+
+```bash
+python scripts/validate_hermes_install.py --hermes-repo /path/to/hermes-agent
+```
+
+The smoke test snapshots only the plugin into a disposable local Git repository,
+uses the real Hermes installer at an exact SHA and a subdirectory, enables it in a
+temporary profile, runs the official catalog validator/security scanner, checks
+both Skills and the hook, and confirms the by2kb copy installer cannot overwrite
+the pin. It does not start a gateway or download a model.
+
+Validated on Windows against Hermes commit
+`6005aa1fd9aac8b1024ace50fec8cd1c85a04bae` on 2026-09-17. Before the fix, admission
+failed for an undeclared hook. After the fix, all 11 admission checks passed with
+no warnings and a `safe` scan, on both Windows and Linux (unicorn Tokyo). This checks
+installation/registration, not remote catalog acceptance, macOS behavior, or live
+ASR/Telegram.
+The tracked by2kb regression suite plus the new installation tests passed 293 tests
+(1 skipped). A local wheel build includes the manifest
+and both bundled Skills. All three edited Skill frontmatters passed validation.
+Linux passed all 294 tests. The existing unicorn Hermes runtime at
+`866332bfb52c46e543143b2620a9aeee8bce9c77` also passed with `--legacy`; that mode uses
+the older runtime doctor, not the newer catalog validator. Its scanner's two
+cautions were inspected before rerunning with `--accept-reviewed-caution`. This
+flag must not be used without reviewing findings, and never permits `dangerous`.
+See [0.6.0 validation details](releases/0.6.0.md#validation-and-limits).
