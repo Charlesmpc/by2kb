@@ -276,7 +276,18 @@ the by2kb Python package inside Hermes. It invokes the separately installed CLI.
 The manifest declares `provides_hooks: [pre_gateway_dispatch]`; `hooks` alone does
 not satisfy the catalog capability validator.
 
-Before catalog admission, a maintainer can test a **published, reviewed commit**:
+For a new installation, install the reviewed Hermes Catalog entry:
+
+```bash
+hermes plugins install by2kb
+hermes plugins enable by2kb
+```
+
+The catalog pins a reviewed commit; its version may lag a PyPI release while a
+catalog update PR is reviewed. The CLI is installed/upgraded separately. Existing
+legacy-copy users should inspect their installation before migrating ownership.
+
+A maintainer can alternatively test a **published, reviewed commit**:
 
 ```bash
 hermes plugins install "Charlesmpc/by2kb/by2kb/integrations/hermes" --ref <full-40-character-commit-sha> --no-enable
@@ -284,8 +295,7 @@ hermes plugins enable by2kb
 ```
 
 This is a custom Git install, not a catalog endorsement. Do not use a placeholder
-SHA verbatim, and do not suggest `hermes plugins install by2kb` until the catalog PR
-has been accepted. Choose a commit from v0.6.0 or later for the bundled setup Skill
+SHA verbatim. Choose a commit from v0.6.0 or later for the bundled setup Skill
 and native-install ownership protection.
 
 Installation bundles two explicit-load Skills:

@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from by2kb.config import DEFAULT_LLM_BASE_URL
+from by2kb.config import DEFAULT_LLM_BASE_URL, DEFAULT_SOURCE_PROVIDERS
 from by2kb.errors import ConfigError
 from by2kb.providers.asr_registry import build_default_asr_registry
 
@@ -12,7 +12,7 @@ from by2kb.providers.asr_registry import build_default_asr_registry
 @dataclass(frozen=True)
 class InitSettings:
     library_root: Path
-    source_providers: tuple[str, ...] = ("bilibili_native",)
+    source_providers: tuple[str, ...] = DEFAULT_SOURCE_PROVIDERS
     asr_provider: str = "faster_whisper"
     enrichment_executor: str = "external_agent"
     tos_access_key: str = ""

@@ -73,8 +73,10 @@ class YtDlpBackend:
             return importlib.import_module("yt_dlp")
         except ImportError as exc:
             raise ConfigError(
-                "yt-dlp source provider is selected but yt-dlp is not installed; "
-                "run: pipx inject by2kb 'yt-dlp>=2025.1.15'"
+                "yt-dlp is missing from the by2kb environment (installation is incomplete); "
+                "repair with the original package manager: "
+                "pipx inject by2kb 'yt-dlp>=2025.1.15', or for uv installs "
+                "uv tool upgrade by2kb. No provider configuration change is needed."
             ) from exc
 
     @property
@@ -89,7 +91,7 @@ class YtDlpBackend:
         try:
             with module.YoutubeDL(runtime_options) as ydl:
                 result = ydl.extract_info(url, download=download)
-        except Exception as exc:  # yt-dlp exception types are optional at import time
+        except Exception as exc:  # Map yt-dlp errors at the lazy backend boundary.
             raise _mapped_error(exc) from exc
         if not isinstance(result, dict):
             raise TerminalProviderError(

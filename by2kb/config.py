@@ -7,6 +7,7 @@ from pathlib import Path
 
 DEFAULT_LLM_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 ENV_PREFIX = "BY2KB_"
+DEFAULT_SOURCE_PROVIDERS = ("bilibili_native", "yt_dlp")
 ENRICHMENT_EXECUTORS = frozenset({"auto", "api", "external_agent", "disabled"})
 
 
@@ -33,7 +34,7 @@ class LongFormConfig:
 @dataclass(frozen=True)
 class SourceConfig:
     providers: list[str] = field(
-        default_factory=lambda: ["bilibili_native"]
+        default_factory=lambda: list(DEFAULT_SOURCE_PROVIDERS)
     )
     options: dict[str, dict[str, object]] = field(default_factory=dict)
 
@@ -179,7 +180,7 @@ def load_config(home: Path | None = None) -> Config:
             ]
             or list(
                 sources_section.get(
-                    "providers", ["bilibili_native"]
+                    "providers", DEFAULT_SOURCE_PROVIDERS
                 )
             ),
             options={

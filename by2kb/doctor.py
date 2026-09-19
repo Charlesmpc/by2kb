@@ -143,6 +143,15 @@ def _source_checks(config: Config) -> list[DoctorCheck]:
                 )
             )
             continue
+        if not source_config.enabled:
+            checks.append(
+                DoctorCheck(
+                    "source_yt_dlp_disabled",
+                    True,
+                    "yt-dlp is explicitly disabled; YouTube URLs will not be handled by it",
+                )
+            )
+            continue
         installed = find_spec("yt_dlp") is not None
         checks.append(
             DoctorCheck(
@@ -151,7 +160,10 @@ def _source_checks(config: Config) -> list[DoctorCheck]:
                 "yt-dlp dependency is installed" if installed else "yt-dlp dependency is missing",
                 None
                 if installed
-                else "Run: pipx inject by2kb 'yt-dlp>=2025.1.15'",
+                else (
+                    "Repair with your original manager: pipx inject by2kb 'yt-dlp>=2025.1.15' "
+                    "or uv tool upgrade by2kb. No source configuration change is needed."
+                ),
             )
         )
         if source_config.cookie_file:

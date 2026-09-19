@@ -51,7 +51,13 @@ class SourceProviderRegistry:
             provider = self._providers[requested.strip().lower()].provider
             if provider.supports(source):
                 return provider
-        raise UnsupportedUrl(f"no configured source provider supports: {source}")
+        raise UnsupportedUrl(
+            f"no configured source provider supports: {source}; "
+            f"selected providers: {', '.join(configured_order)}. "
+            "Check [sources].providers or BY2KB_SOURCE_PROVIDERS overrides "
+            "and [sources.yt_dlp].enabled. To use the built-in Bilibili/YouTube "
+            "defaults, remove the provider-list override; preserve other settings."
+        )
 
 
 def build_default_source_registry(

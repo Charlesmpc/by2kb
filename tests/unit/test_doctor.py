@@ -21,6 +21,7 @@ def _config(tmp_path: Path, *, provider: str = "faster_whisper") -> Config:
 
 
 def _passing_system_checks(monkeypatch):
+    monkeypatch.setattr("by2kb.doctor.find_spec", lambda _name: object())
     monkeypatch.setattr(
         "by2kb.doctor._command_check",
         lambda check_id, command: DoctorCheck(check_id, True, f"{command} works"),
@@ -51,6 +52,7 @@ def test_doctor_success_schema_is_agent_readable(tmp_path, monkeypatch):
     assert payload["schema_version"] == 1
     assert payload["ok"] is True
     assert payload["provider"] == "faster_whisper"
+    assert payload["source_providers"] == ["bilibili_native", "yt_dlp"]
     assert all(set(check) == {"id", "ok", "message", "remediation"} for check in payload["checks"])
 
 
@@ -164,6 +166,8 @@ def test_interactive_init_supports_local_whisper(tmp_path):
     rendered = (home / "config.toml").read_text(encoding="utf-8")
     assert 'provider = "faster_whisper"' in rendered
     assert 'executor = "disabled"' in rendered
+    assert 'providers = ["bilibili_native", "yt_dlp"]' in rendered
+    assert "optional YouTube" not in result.stdout
     assert "by2kb doctor" in result.stdout
 
 
@@ -211,4 +215,24 @@ def test_interactive_init_can_enable_youtube_source(tmp_path):
     rendered = (home / "config.toml").read_text(encoding="utf-8")
     assert 'providers = ["bilibili_native", "yt_dlp"]' in rendered
     assert '[sources.yt_dlp]' in rendered
-    assert "pipx inject by2kb 'yt-dlp" in result.stdout
+    assert "pipx inject by2kb 'yt-dlp" not in result.stdout
+
+
+def test_doctor_respects_disabled_ytdlp_without_checking_its_dependencies(tmp_path, monkeypatch):
+    _passing_system_checks(monkeypatch)
+    config = _config(tmp_path)
+    config.sources = SourceConfig(options={"yt_dlp": {"enabled": False}})
+    monkeypatch.setattr("by2kb.doctor.find_spec", lambda _name: None)
+    report = run_doctor(config)
+    assert any(check.id == "source_yt_dlp_disabled" and check.ok for check in report.checks)
+    assert not any(check.id == "source_yt_dlp_dependency" for check in report.checks)
+
+
+def test_interactive_init_preserves_explicit_bilibili_only_choice(tmp_path):
+    home = tmp_path / "bilibili-home"
+    result = CliRunner().invoke(
+        cli.app, ["init", "--home", str(home)],
+        input="\nbilibili\n\n\n\n\n\ndisabled\n",
+    )
+    assert result.exit_code == 0, result.stdout
+    assert 'providers = ["bilibili_native"]' in (home / "config.toml").read_text()

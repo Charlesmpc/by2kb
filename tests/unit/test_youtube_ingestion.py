@@ -6,11 +6,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from by2kb.config import Config, LlmConfig, SourceConfig
+from by2kb.config import Config, LlmConfig
 from by2kb.jobs.runner import ingest_url
 from by2kb.providers.asr import AsrOptions, AsrResult
 from by2kb.providers.asr_registry import AsrProviderRegistry
 from by2kb.providers.source_registry import SourceProviderRegistry
+from by2kb.providers.source_bilibili import BilibiliSourceProvider
 from by2kb.providers.yt_dlp_source import YtDlpSourceConfig, YtDlpSourceProvider
 
 
@@ -76,6 +77,7 @@ class RecordingAsr:
 
 def _source_registry(backend: YoutubeBackend) -> SourceProviderRegistry:
     registry = SourceProviderRegistry()
+    registry.register("bilibili_native", BilibiliSourceProvider())
     registry.register(
         "yt_dlp",
         YtDlpSourceProvider(YtDlpSourceConfig(), backend=backend),
@@ -95,7 +97,6 @@ def _config(tmp_path: Path, *, enricher: str = "api") -> Config:
             base_url="https://llm.test/v1",
             model="fixture-model",
         ),
-        sources=SourceConfig(providers=["yt_dlp"]),
     )
 
 
