@@ -267,7 +267,6 @@ def init_config(
             raise typer.BadParameter("preset must be agent-local")
         settings = InitSettings(
             library_root=(library_root_option or home / "library").expanduser(),
-            source_providers=("bilibili_native", "yt_dlp"),
             asr_provider="faster_whisper",
             enrichment_executor="external_agent",
         )
@@ -283,7 +282,7 @@ def init_config(
         ).expanduser()
     )
     source_mode = typer.prompt(
-        "URL sources (bilibili or bilibili+youtube)", default="bilibili"
+        "URL sources (bilibili or bilibili+youtube)", default="bilibili+youtube"
     )
     source_providers = {
         "bilibili": ("bilibili_native",),
@@ -395,9 +394,6 @@ def _write_init_configuration(
         raise typer.Exit(exc.exit_code) from exc
     typer.echo(f"Configuration: {config_path}")
     typer.echo(f"Secrets: {env_path}")
-    if "yt_dlp" in settings.source_providers:
-        typer.echo("Next: install the optional YouTube source provider.")
-        typer.echo("  pipx inject by2kb 'yt-dlp>=2025.1.15'")
     if settings.asr_provider == "faster_whisper":
         typer.echo("Next: install the optional faster-whisper runtime and model.")
         typer.echo("  pipx inject by2kb 'faster-whisper>=1.2.1,<2'")

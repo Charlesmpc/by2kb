@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fix missing source configuration defaulting to Bilibili only: Bilibili and YouTube
+  now both have default routes, consistently across config loading and initialization
+  (#45). YouTube remains captions-first with configured ASR for audio fallback.
+- Include yt-dlp in base dependencies; keep existing YouTube extras compatible.
+  Browser support remains opt-in and no installation runs during video processing.
+- Apply defaults without rewriting existing configuration. Preserve explicit provider
+  lists/environment overrides, disabled yt-dlp, custom ASR, cookies, browser fallback,
+  and knowledge-base paths. Document adoption for old explicit Bilibili-only lists.
+- Improve restricted-source and incomplete-installation errors; doctor explains
+  disabled yt-dlp without demanding unused dependencies.
+
 ## 0.6.0 - 2026-09-17
 
 - Prepare the native Hermes plugin for catalog admission: correct `provides_hooks`,

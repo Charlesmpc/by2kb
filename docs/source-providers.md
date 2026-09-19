@@ -1,7 +1,8 @@
 # Source providers
 
 URL acquisition is selected independently from ASR, enrichment, and knowledge-base
-storage. Configure a deterministic provider order in `config.toml`:
+storage. Without a source override, both Bilibili and YouTube work by default.
+You may override the deterministic provider order or individual options in `config.toml`:
 
 ```toml
 [sources]
@@ -15,16 +16,18 @@ cookie_file = ""
 cookies_from_browser = ""
 ```
 
-The default remains `bilibili_native` only, keeping a basic installation lightweight.
-Enable `yt_dlp` explicitly when broader URL support is wanted:
+The default order is `bilibili_native`, then `yt_dlp`. The base package includes
+yt-dlp; the `source-ytdlp` and `youtube` extras remain valid for older install commands.
+Browser support and ASR runtimes/models remain separate choices; ordinary processing
+does not install software or download a model automatically.
 
-```bash
-pipx inject by2kb "yt-dlp>=2025.1.15"
-by2kb doctor
-```
-
-For a new installation, the equivalent package extra is
-`pipx install "by2kb[source-ytdlp]"` (or `by2kb[youtube]`).
+Missing `sources.providers` inherits the default even when `[sources.browser]`,
+`[sources.fallback]`, or `[sources.yt_dlp]` already exists. An explicit provider list
+replaces the defaults rather than merging with them. A nonempty
+`BY2KB_SOURCE_PROVIDERS` environment variable takes precedence over the file.
+`[sources.yt_dlp] enabled = false` remains an explicit opt-out. These rules apply at
+load time and never rewrite user configuration. See the
+[upgrade compatibility guide](upgrading.md#bilibili-and-youtube-defaults).
 
 ## Selection and fallback
 
@@ -58,7 +61,7 @@ media URLs, request headers, and cookies are not published.
 
 ## Opt-in live verification
 
-Live extraction is intentionally not part of the unit suite. After enabling yt-dlp,
+Live extraction is intentionally not part of the unit suite. With the default routes,
 use one public, single-video URL that has captions and run:
 
 ```bash

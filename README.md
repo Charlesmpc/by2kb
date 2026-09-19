@@ -78,13 +78,11 @@ by2kb doctor
 by2kb doctor --json
 ```
 
-To accept YouTube URLs, enable `bilibili+youtube` during `by2kb init` and install the
-optional source Provider:
-
-```bash
-pipx inject by2kb "yt-dlp>=2025.1.15"
-by2kb doctor
-```
+Bilibili and YouTube are enabled by default, and yt-dlp ships with the base package.
+YouTube uses available captions first, then the configured ASR when audio is needed.
+No separate platform configuration is required. Explicit source overrides remain
+respected; see [upgrading source defaults](docs/upgrading.md#bilibili-and-youtube-defaults)
+if an older configuration deliberately or historically lists only Bilibili.
 
 ### Agent-first: Hermes
 
@@ -132,7 +130,7 @@ neither route guarantees recovery from all site risk controls. See the
 [browser setup and fallback guide](docs/source-providers.md#browser-fallback-043-opt-in).
 
 See [Source providers](docs/source-providers.md) for configurable provider priority,
-optional yt-dlp installation, caption policy, audio fallback, and cookie handling.
+default yt-dlp routing, caption policy, audio fallback, and cookie handling.
 See [Local media](docs/local-media.md) for supported formats, content-addressed
 deduplication, ffmpeg requirements, and attachment handling.
 See [Diagnostics](docs/doctor.md) for every read-only check and the Agent-facing JSON schema.
@@ -416,7 +414,7 @@ When no usable transcript exists:
 4. store provenance, timing, model, and confidence metadata;
 5. continue through the same raw/updated pipeline.
 
-Implemented media routes include native Bilibili acquisition and optional yt-dlp.
+Implemented media routes include native Bilibili acquisition and bundled yt-dlp.
 ASR supports local faster-whisper by default and optional cloud Doubao AUC. Platform
 terms, account security, regional restrictions, cost, and deployment environment
 must still be evaluated before use.
@@ -635,7 +633,7 @@ machine.
 - [ ] Remote Job API, queue, and worker service.
 - [x] Telegram input through the Hermes plugin.
 - [ ] Standalone Telegram input adapter for users without an agent.
-- [x] YouTube caption retrieval through the optional yt-dlp provider.
+- [x] YouTube caption retrieval through the default yt-dlp provider.
 - [x] Timestamp-preserving normalization.
 - [x] Filesystem/Obsidian Markdown sink (sink contract pinned in
       `docs/tech-design-m1.md` §3.7).

@@ -58,6 +58,36 @@ If a pinned direct-URL pipx installation requires uninstalling and reinstalling 
 application, confirm the action first. Removing the pipx environment still must not
 remove `$BY2KB_HOME` or the knowledge-base folder.
 
+## Bilibili and YouTube defaults
+
+The source-default fix following 0.6.0 adds yt-dlp to the base package and makes
+`["bilibili_native", "yt_dlp"]` the default in the loader, interactive setup, and
+agent-local setup. A normal upgrade with the existing package manager installs the
+dependency; no browser, ASR model, or cloud credentials are installed automatically.
+
+Configuration is **not rewritten or reset** during an upgrade:
+
+- No `sources.providers` key: automatically inherit both routes. This includes an
+  existing file containing only browser fallback and/or yt-dlp options. No edit or
+  reinitialization is needed. Existing ASR, knowledge-base and authentication settings
+  stay unchanged.
+- Explicit `sources.providers`: preserve the exact list and its priority. An older
+  initializer may have written `["bilibili_native"]`; this cannot be distinguished
+  from an intentional restriction, so the upgrade does not silently broaden it.
+  If YouTube is wanted, edit that one line to
+  `providers = ["bilibili_native", "yt_dlp"]`, or remove just the `providers` key
+  to inherit defaults. Do not replace the whole configuration or duplicate an existing
+  TOML section. Keep any custom provider order if it is intentional.
+- `BY2KB_SOURCE_PROVIDERS` in the service environment or `.env` overrides the file.
+  Update or remove that override explicitly if it still restricts the sources.
+- An explicit `[sources.yt_dlp] enabled = false` stays disabled. An explicit empty
+  provider list remains a configuration error; it is never silently reset.
+
+Run `by2kb doctor --json` to see the effective `source_providers` and any disabled
+yt-dlp or missing-dependency diagnostics. Passing checks are not proof that a
+particular video is accessible: authentication, network restrictions, and unavailable
+media can still fail later. Do not run `by2kb init --force` to adopt these defaults.
+
 
 ## 0.5.1 title provenance
 
