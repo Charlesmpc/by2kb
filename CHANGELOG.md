@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.1 - 2026-09-19
+
 - Fix missing source configuration defaulting to Bilibili only: Bilibili and YouTube
   now both have default routes, consistently across config loading and initialization
   (#45). YouTube remains captions-first with configured ASR for audio fallback.

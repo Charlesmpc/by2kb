@@ -45,9 +45,9 @@ Use the intended Hermes profile for all commands; `--hermes-home` also applies t
 the copy installer's enable step. Ask before restarting a running gateway.
 
 The plugin's staged request-file workflow requires by2kb CLI 0.5.3+. Check release
-notes before adopting a future incompatible CLI or plugin version. Catalog
-submission is pending; the bare `hermes plugins install by2kb` command is not yet
-advertised as available.
+notes before adopting a future incompatible CLI or plugin version. by2kb is now
+in the Hermes Catalog (`hermes plugins install by2kb` for new installations).
+Catalog pins update through separate reviewed PRs and may lag PyPI releases.
 
 Do not personalize files inside the managed plugin directory. Put a Hermes runtime
 Skill at `$BY2KB_HOME/skills/video-to-knowledge/SKILL.md`, or set
@@ -60,7 +60,7 @@ remove `$BY2KB_HOME` or the knowledge-base folder.
 
 ## Bilibili and YouTube defaults
 
-The source-default fix following 0.6.0 adds yt-dlp to the base package and makes
+The 0.6.1 source-default fix adds yt-dlp to the base package and makes
 `["bilibili_native", "yt_dlp"]` the default in the loader, interactive setup, and
 agent-local setup. A normal upgrade with the existing package manager installs the
 dependency; no browser, ASR model, or cloud credentials are installed automatically.
