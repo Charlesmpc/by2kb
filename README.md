@@ -11,6 +11,15 @@ agent such as Hermes; `by2kb` handles media retrieval and the selected local or 
 ASR provider, while the agent uses its existing model authentication to produce both summaries.
 Standalone users can run the same pipeline with their own OpenAI-compatible API key.
 
+**Learning-topic discovery (new in 0.7.0).** Send
+`by2kb 我想了解一下 TiDB 向量检索` through the updated Hermes plugin to get
+3–5 numbered video recommendations, then reply with a number to enter the normal
+transcription and knowledge-base workflow. Search sources are individually configurable;
+caption-only previews never download audio or run ASR. See
+[topic search and configuration](docs/topic-search.md) for CLI usage, selection
+state, preview limits, and deployment requirements. Current built-in search sources
+are Bilibili and YouTube; podcast and article ingestion remain future extensions.
+
 ## See it in action
 
 **Copy a video link. Send it to Hermes. Keep the knowledge.**
@@ -681,6 +690,14 @@ machine.
 - Circumventing access controls or platform restrictions.
 
 ## Prior art
+
+The learning-topic discovery workflow was inspired by
+[Agent Reach](https://github.com/Panniantong/Agent-Reach): its platform-routing and
+search references demonstrate how an Agent can combine platform-specific discovery
+tools (including YouTube `ytsearch` and Bilibili search). by2kb implements its own
+configurable search-provider registry, caption-only previews, durable numbered
+selection, and ingestion handoff. No Agent Reach source code is copied and Agent
+Reach is not a runtime dependency. We thank the project for the inspiration.
 
 `by2kb` was directly inspired by these two projects — they proved the core insight
 that a video's native transcript can be retrieved programmatically and turned into a

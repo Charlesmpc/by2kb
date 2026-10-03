@@ -33,13 +33,16 @@ def register(ctx):
     ctx.register_skill(
         "video-to-knowledge",
         skill,
-        description="Transcribe and summarize a Bilibili or YouTube video with by2kb.",
+        description="Find learning videos by topic, select numbered recommendations, or transcribe a Bilibili/YouTube video with by2kb.",
     )
 
     def intercept(event, gateway, **kwargs):
         del kwargs
-        match = _VIDEO_URL.search(event.text or "")
-        if not match:
+        text = (event.text or "").strip()
+        match = _VIDEO_URL.search(text)
+        explicit = re.match(r"^(?:/by2kb|by2kb)(?=\s|[:：]|$)\s*[:：]?\s*(.*)$", text, re.I | re.S)
+        selection_like = bool(re.fullmatch(r"\d+(?:\s*[,，、]\s*\d+)*", text)) or text in {"取消", "换一批"}
+        if not match and not explicit and not selection_like:
             return None
         try:
             if not gateway._is_user_authorized(event.source):
@@ -53,6 +56,36 @@ def register(ctx):
         loop = asyncio.get_running_loop()
         reply_to = getattr(event, "message_id", None)
         chat_id = event.source.chat_id
+        if not match:
+            user_id = getattr(event.source, "user_id", None)
+            if not user_id:
+                return None  # Never share numeric selections among unknown senders.
+            scope = hashlib.sha256(json.dumps([
+                str(platform), str(chat_id), str(user_id), str(getattr(event.source, "thread_id", None) or "")
+            ]).encode()).hexdigest()
+            if explicit:
+                request = explicit.group(1).strip()
+                if not request:
+                    _send(loop, adapter, chat_id, "请发送 by2kb 学习主题，例如：by2kb 我想了解 TiDB 向量检索。", reply_to)
+                    return {"action": "skip", "reason": "by2kb-search"}
+                action, session_id = "discover", None
+            else:
+                try:
+                    latest = _run_by2kb(["search", "latest", "--scope", scope, "--json"])
+                except Exception:
+                    return None
+                if not latest or latest.get("status") not in {"awaiting_selection", "selected"}:
+                    return None
+                request, session_id = text, latest["session_id"]
+                action = "discover" if text == "换一批" else "cancel" if text == "取消" else "select"
+                if action == "discover":
+                    request = latest["topic"]
+            _send(loop, adapter, chat_id,
+                  "正在搜索相关内容；仅获取字幕预览，不下载音轨。" if action == "discover"
+                  else "收到，正在处理你的选择。", reply_to)
+            threading.Thread(target=_process_search, args=(ctx, loop, adapter, chat_id, reply_to, scope, action, request, session_id),
+                             name="by2kb-search", daemon=True).start()
+            return {"action": "skip", "reason": "by2kb-search"}
         _send(loop, adapter, chat_id, "收到，正在转录并整理这段视频。", reply_to)
         threading.Thread(
             target=_process,
@@ -63,6 +96,41 @@ def register(ctx):
         return {"action": "skip", "reason": "by2kb-video"}
 
     ctx.register_hook("pre_gateway_dispatch", intercept)
+
+
+def _process_search(ctx, loop, adapter, chat_id, reply_to, scope, action, request, session_id):
+    try:
+        if action == "discover":
+            payload = _run_by2kb(["search", "discover", request, "--scope", scope, "--json"], allow_codes={0, 1})
+            if payload.get("status") == "error":
+                _send(loop, adapter, chat_id, payload["message"], reply_to)
+                return
+            latest = _run_by2kb(["search", "latest", "--scope", scope, "--json"])
+            if latest and latest["session_id"] == payload["session_id"] and latest["status"] != "cancelled":
+                _send(loop, adapter, chat_id, payload["message"], reply_to)
+        elif action == "cancel":
+            _run_by2kb(["search", "cancel", session_id, "--scope", scope, "--json"])
+            _send(loop, adapter, chat_id, "已取消这份推荐清单。", reply_to)
+        else:
+            payload = _run_by2kb(["search", "select", session_id, request, "--scope", scope,
+                                  "--enricher", "external_agent", "--json"], allow_codes={0, 1, 2, 3, 4})
+            if payload.get("status") == "error":
+                _send(loop, adapter, chat_id, payload["message"], reply_to)
+                return
+            for result in payload["results"]:
+                try:
+                    artifacts = result.get("artifacts") or {}
+                    if result["status"] == "enrichment_pending":
+                        complete = _run_staged_enrichment(ctx, result["job_id"])
+                        artifacts = complete.get("artifacts") or {}
+                    elif result["status"] not in {"completed", "duplicate"}:
+                        _send(loop, adapter, chat_id, f"第 {result['number']} 项未完成：{result['message']}", reply_to)
+                        continue
+                    _send(loop, adapter, chat_id, _success_message(artifacts, _read_abstract(artifacts)), reply_to)
+                except Exception:
+                    _send(loop, adapter, chat_id, f"第 {result['number']} 项整理未完成，已保存进度。任务：{result.get('job_id')}", reply_to)
+    except Exception:
+        _send(loop, adapter, chat_id, "搜索或选择未完成，请检查 by2kb 配置、清单是否过期及网络状态后重试。", reply_to)
 
 
 def _video_skill_path() -> Path:

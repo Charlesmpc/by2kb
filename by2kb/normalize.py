@@ -50,6 +50,7 @@ class NormalizedTranscript(BaseModel):
     schema_version: int = 1
     source: SourceMeta
     transcript: TranscriptMeta
+    learning_topic: str | None = None
 
 
 def source_meta_from_identity(

@@ -251,6 +251,8 @@ async def ingest_source(
     enricher: str | None = None,
     requested_by: str | None = None,
     asr_registry: AsrProviderRegistry | None = None,
+    cached_transcript: NormalizedTranscript | None = None,
+    learning_topic: str | None = None,
 ) -> IngestOutcome:
     """Dispatch a URL or local path into the same ingestion pipeline."""
     candidate = (source or "").strip()
@@ -270,6 +272,8 @@ async def ingest_source(
             enricher=enricher,
             requested_by=requested_by,
             asr_registry=asr_registry,
+            cached_transcript=cached_transcript,
+            learning_topic=learning_topic,
         )
     return await ingest_local_file(
         candidate,
@@ -292,6 +296,8 @@ async def ingest_url(
     requested_by: str | None = None,
     asr_registry: AsrProviderRegistry | None = None,
     source_registry: SourceProviderRegistry | None = None,
+    cached_transcript: NormalizedTranscript | None = None,
+    learning_topic: str | None = None,
 ) -> IngestOutcome:
     sources = source_registry or build_default_source_registry(
         source_options=config.sources.options, home=config.home
@@ -311,6 +317,14 @@ async def ingest_url(
             provider = FallbackSourceProvider(provider, fallback, url)
 
     async def resolver(client: httpx.AsyncClient) -> SourceIdentity:
+        if cached_transcript is not None:
+            if cached_transcript.source.canonical_url != url or not cached_transcript.transcript.segments:
+                raise ConfigError("cached caption does not match the selected video")
+            return SourceIdentity(
+                platform=cached_transcript.source.platform,
+                video_id=cached_transcript.source.video_id,
+                canonical_url=url,
+            )
         return await provider.resolve(url, client)
 
     async def prepare(
@@ -321,6 +335,16 @@ async def ingest_url(
         store: JobStore,
         job: Job,
     ) -> PreparedSource:
+        if cached_transcript is not None:
+            store.update_status(job.id, JobStatus.FETCHING_TRANSCRIPT)
+            return PreparedSource(
+                title=cached_transcript.source.title, author=cached_transcript.source.author,
+                duration_s=(cached_transcript.source.duration_ms / 1000 if cached_transcript.source.duration_ms else None),
+                transcript=cached_transcript.model_copy(deep=True),
+                source_payload={"source_provider": cached_transcript.transcript.provider,
+                                "provenance": {"route": "subtitle", "reused_search_preview": True,
+                                               "fetched_at": cached_transcript.transcript.fetched_at}},
+            )
         return await provider.prepare(
             identity,
             client,
@@ -341,6 +365,7 @@ async def ingest_url(
         asr_registry=asr_registry,
         source_reference=url,
         source_kind="url",
+        learning_topic=learning_topic,
     )
 
 
@@ -407,6 +432,7 @@ async def _ingest(
     asr_registry: AsrProviderRegistry | None = None,
     source_reference: str | None = None,
     source_kind: str | None = None,
+    learning_topic: str | None = None,
 ) -> IngestOutcome:
     store = JobStore(config.db_path)
     job: Job | None = None
@@ -496,6 +522,7 @@ async def _ingest(
                     options={
                         "source": source_reference,
                         "source_kind": source_kind,
+                        "learning_topic": learning_topic,
                     },
                 )
                 if existing is None:
@@ -564,6 +591,9 @@ async def _ingest(
                         "asr_provenance": asr_result.provenance,
                     }
                 )
+            normalized.learning_topic = learning_topic or job.options.get("learning_topic")
+            if normalized.learning_topic:
+                source_payload["learning_topic"] = normalized.learning_topic
             quality = assess_transcript(normalized)
             normalized.transcript.quality = quality
             staging = work_dir / "artifacts"

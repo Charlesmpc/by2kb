@@ -38,10 +38,72 @@ enrichment_app = typer.Typer(help="External-agent enrichment protocol")
 agent_app = typer.Typer(help="Install by2kb into an agent host")
 models_app = typer.Typer(help="Inspect and install optional local ASR models")
 browser_app = typer.Typer(help="Install or log in to the optional dedicated browser")
+search_app = typer.Typer(help="Discover learning videos, preview captions, and select recommendations")
 app.add_typer(enrichment_app, name="enrichment")
 app.add_typer(agent_app, name="agent")
 app.add_typer(models_app, name="models")
 app.add_typer(browser_app, name="browser")
+app.add_typer(search_app, name="search")
+
+
+@search_app.command("discover")
+def search_topic(
+    topic: str = typer.Argument(..., help="Learning topic"),
+    scope: str = typer.Option("local", "--scope", help="Opaque user/chat identity"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    _configure_stdio()
+    from by2kb.search.service import discover, format_recommendations
+    try:
+        payload = asyncio.run(discover(topic, load_config(), scope=scope))
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    payload["message"] = format_recommendations(payload)
+    typer.echo(json.dumps(payload, ensure_ascii=False) if json_out else payload["message"] + f"\n\nSearch ID: {payload['session_id']}")
+
+
+@search_app.command("select")
+def search_select(
+    session_id: str = typer.Argument(...),
+    selection: str = typer.Argument(..., help="Numbers, e.g. 1 or 1,3"),
+    scope: str = typer.Option("local", "--scope"),
+    enricher: str | None = typer.Option(None, "--enricher"),
+    json_out: bool = typer.Option(False, "--json"),
+) -> None:
+    _configure_stdio()
+    from by2kb.search.service import select_and_ingest
+    try:
+        payload = asyncio.run(select_and_ingest(session_id, selection, load_config(), scope=scope, enricher=enricher))
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    typer.echo(json.dumps(payload, ensure_ascii=False) if json_out else "\n".join(r["message"] for r in payload["results"]))
+    raise typer.Exit(max((r["exit_code"] for r in payload["results"] if r["exit_code"] != 4), default=0))
+
+
+@search_app.command("latest")
+def search_latest(scope: str = typer.Option("local", "--scope"), json_out: bool = typer.Option(False, "--json")) -> None:
+    from by2kb.search.store import SearchStore
+    from by2kb.search.service import format_recommendations
+    _configure_stdio()
+    try:
+        payload = SearchStore(load_config().home).latest(scope)
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    if payload and payload["status"] in {"awaiting_selection", "selected"}:
+        payload["message"] = format_recommendations(payload)
+    typer.echo(json.dumps(payload, ensure_ascii=False) if json_out else (payload or {}).get("message", "No active recommendations"))
+
+
+@search_app.command("cancel")
+def search_cancel(session_id: str = typer.Argument(...), scope: str = typer.Option("local", "--scope"),
+                  json_out: bool = typer.Option(False, "--json")) -> None:
+    from by2kb.search.store import SearchStore
+    _configure_stdio()
+    try:
+        payload = SearchStore(load_config().home).cancel(session_id, scope)
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    typer.echo(json.dumps(payload, ensure_ascii=False) if json_out else "Recommendation selection cancelled")
 
 
 @browser_app.command("install")
