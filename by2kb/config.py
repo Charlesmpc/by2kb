@@ -5,6 +5,8 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from by2kb.search.config import SearchConfig
+
 DEFAULT_LLM_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 ENV_PREFIX = "BY2KB_"
 DEFAULT_SOURCE_PROVIDERS = ("bilibili_native", "yt_dlp")
@@ -56,6 +58,7 @@ class Config:
     llm: LlmConfig = field(default_factory=LlmConfig)
     long_form: LongFormConfig = field(default_factory=LongFormConfig)
     sources: SourceConfig = field(default_factory=SourceConfig)
+    search: SearchConfig = field(default_factory=SearchConfig)
 
     def resolved_enrichment_executor(self, override: str | None = None) -> str:
         executor = override or self.enrichment_executor
@@ -189,4 +192,5 @@ def load_config(home: Path | None = None) -> Config:
                 if key != "providers" and isinstance(value, dict)
             },
         ),
+        search=SearchConfig.from_mapping(data.get("search", {})),
     )

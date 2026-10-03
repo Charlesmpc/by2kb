@@ -1,6 +1,6 @@
 name: by2kb
-version: "0.6.1"
-description: Transcribe Bilibili/YouTube videos or local media and enrich them with the Hermes host model.
+version: "0.7.0"
+description: Discover learning videos by topic, select numbered recommendations, and transcribe/enrich videos with the Hermes host model.
 author: Charlesmpc
 kind: standalone
 license: MIT

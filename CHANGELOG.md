@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 - 2026-10-04
+
+- Add configurable learning-topic discovery for Bilibili and YouTube, bounded
+  concurrent search, topic-word screening, and numbered recommendations with
+  explicit metadata/caption evidence.
+- Add metadata-only or caption-only preview settings. Search never downloads media
+  or runs ASR; selected videos reuse cached captions before the normal pipeline.
+- Persist user/chat-scoped recommendation lists with expiry, supersession, numeric
+  validation, cancellation, and repeat-safe selection. Carry the learning topic
+  into source provenance and final summary prompts.
+- Extend the Hermes explicit `by2kb TOPIC` hook and Agent Skills, document settings
+  and source limitations, and acknowledge Agent Reach as design inspiration.
 
 ## 0.6.1 - 2026-09-19
 
