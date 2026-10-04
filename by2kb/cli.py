@@ -51,15 +51,41 @@ def search_topic(
     topic: str = typer.Argument(..., help="Learning topic"),
     scope: str = typer.Option("local", "--scope", help="Opaque user/chat identity"),
     json_out: bool = typer.Option(False, "--json"),
+    plan_file: Path | None = typer.Option(None, "--plan-file", help="Validated host query plan JSON"),
+    budget_s: float | None = typer.Option(None, "--budget-s", help="Remaining discovery budget"),
+    session_id: str | None = typer.Option(None, "--session-id", help="Pending search session"),
 ) -> None:
     _configure_stdio()
     from by2kb.search.service import discover, format_recommendations
     try:
-        payload = asyncio.run(discover(topic, load_config(), scope=scope))
+        plan = None
+        if plan_file is not None:
+            try:
+                if plan_file.stat().st_size > 16384: raise ValueError()
+                plan = json.loads(plan_file.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ConfigError("invalid search plan file") from exc
+        payload = asyncio.run(discover(topic, load_config(), scope=scope, plan=plan, budget_s=budget_s, session_id=session_id))
     except By2kbError as exc:
         _command_error(exc, json_out)
     payload["message"] = format_recommendations(payload)
     typer.echo(json.dumps(payload, ensure_ascii=False) if json_out else payload["message"] + f"\n\nSearch ID: {payload['session_id']}")
+
+
+@search_app.command("begin")
+def search_begin(topic: str, scope: str = typer.Option("local", "--scope"), json_out: bool = typer.Option(False, "--json")):
+    from by2kb.search.store import SearchStore
+    from by2kb.search.providers import default_registry
+    _configure_stdio()
+    try:
+        config = load_config()
+        default_registry().enabled(config.search)
+        if not topic.strip() or len(topic) > 500: raise ConfigError("invalid learning topic")
+        result = SearchStore(config.home).begin(topic.strip(), scope, config.search.session_ttl_s)
+        result["total_timeout_s"] = config.search.total_timeout_s
+    except By2kbError as exc:
+        _command_error(exc, json_out)
+    typer.echo(json.dumps(result, ensure_ascii=False) if json_out else result["session_id"])
 
 
 @search_app.command("select")

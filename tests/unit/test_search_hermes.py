@@ -27,14 +27,18 @@ class InlineThread:
 @pytest.mark.asyncio
 async def test_explicit_topic_then_numeric_reply_scope_and_enrichment(monkeypatch):
     calls, replies, scopes = [], [], []
+    searching = {"value": True}
     def run(arguments, **kwargs):
         calls.append(arguments)
+        if arguments[:2] == ["search", "begin"]:
+            return {"session_id": "session", "status": "searching", "total_timeout_s": 28}
         if arguments[:2] == ["search", "discover"]:
+            searching["value"] = False
             scopes.append(arguments[arguments.index("--scope") + 1])
             return {"session_id": "session", "status": "awaiting_selection", "message": "1. Real candidate"}
         if arguments[:2] == ["search", "latest"]:
             scopes.append(arguments[arguments.index("--scope") + 1])
-            return {"session_id": "session", "status": "awaiting_selection", "topic": "TiDB"}
+            return {"session_id": "session", "status": "searching" if searching["value"] else "awaiting_selection", "topic": "TiDB"}
         if arguments[:2] == ["search", "select"]:
             scopes.append(arguments[arguments.index("--scope") + 1])
             return {"status": "selected", "results": [{"number": 1, "status": "enrichment_pending", "job_id": "job"}]}

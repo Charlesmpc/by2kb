@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 _VIDEO_URL = re.compile(
@@ -98,10 +99,47 @@ def register(ctx):
     ctx.register_hook("pre_gateway_dispatch", intercept)
 
 
+def _plan_search(ctx, request, timeout_s):
+    from .search_planning import PLAN_PROMPT, fallback_plan, validate_plan
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = None
+    try:
+        future = executor.submit(ctx.llm.complete,
+                                 messages=[{"role": "system", "content": PLAN_PROMPT},
+                                           {"role": "user", "content": request}],
+                                 max_tokens=450, timeout=timeout_s, purpose="by2kb.search.plan")
+        result = future.result(timeout=timeout_s)
+        text = result.text.strip()
+        if text.startswith("```"): text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        return validate_plan(json.loads(text), request)
+    except Exception:
+        return fallback_plan(request)
+    finally:
+        if future is not None: future.cancel()
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
 def _process_search(ctx, loop, adapter, chat_id, reply_to, scope, action, request, session_id):
+    pending = None
     try:
         if action == "discover":
-            payload = _run_by2kb(["search", "discover", request, "--scope", scope, "--json"], allow_codes={0, 1})
+            started = time.monotonic()
+            pending = _run_by2kb(["search", "begin", request, "--scope", scope, "--json"], timeout_s=5)
+            budget = float(pending.get("total_timeout_s", 28))
+            plan = _plan_search(ctx, request, min(8, budget / 3))
+            latest = _run_by2kb(["search", "latest", "--scope", scope, "--json"])
+            if not latest or latest["session_id"] != pending["session_id"] or latest["status"] != "searching":
+                return
+            remaining = budget - (time.monotonic() - started)
+            if remaining <= 0:
+                _send(loop, adapter, chat_id, "搜索超时，请重试。", reply_to)
+                return
+            with tempfile.TemporaryDirectory(prefix="by2kb-search-") as temporary:
+                path = Path(temporary) / "plan.json"
+                path.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+                payload = _run_by2kb(["search", "discover", request, "--scope", scope, "--json",
+                                      "--plan-file", str(path), "--budget-s", str(remaining),
+                                      "--session-id", pending["session_id"]], allow_codes={0, 1}, timeout_s=max(1, remaining + 1))
             if payload.get("status") == "error":
                 _send(loop, adapter, chat_id, payload["message"], reply_to)
                 return
@@ -130,6 +168,11 @@ def _process_search(ctx, loop, adapter, chat_id, reply_to, scope, action, reques
                 except Exception:
                     _send(loop, adapter, chat_id, f"第 {result['number']} 项整理未完成，已保存进度。任务：{result.get('job_id')}", reply_to)
     except Exception:
+        if pending is not None:
+            try:
+                latest = _run_by2kb(["search", "latest", "--scope", scope, "--json"], timeout_s=3)
+                if latest and latest["session_id"] != pending["session_id"]: return
+            except Exception: pass
         _send(loop, adapter, chat_id, "搜索或选择未完成，请检查 by2kb 配置、清单是否过期及网络状态后重试。", reply_to)
 
 
@@ -320,7 +363,7 @@ def _load_operation(ticket):
     return operation
 
 
-def _run_by2kb(arguments, *, allow_codes={0}):
+def _run_by2kb(arguments, *, allow_codes={0}, timeout_s=7200):
     executable = os.environ.get("BY2KB_COMMAND") or shutil.which("by2kb")
     if not executable:
         raise RuntimeError(
@@ -335,7 +378,7 @@ def _run_by2kb(arguments, *, allow_codes={0}):
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=7200,
+        timeout=timeout_s,
         check=False,
         stdin=subprocess.DEVNULL,
     )
