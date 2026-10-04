@@ -48,7 +48,7 @@ def safe(item):
     result['description'] = str(item.get('description') or '')[:1500]
     return result
 if flat:
-    result = [safe(item) for item in (info.get('entries') or []) if item][:5]
+    result = [safe(item) for item in (info.get('entries') or []) if item][:20]
 else:
     if info.get('entries') is not None: raise ValueError('collection rejected')
     result = safe(info)
@@ -116,6 +116,7 @@ class YouTubeSearch:
 
     async def search(self, topic, limit, client):
         del client
+        limit = min(limit, 20)
         entries = await youtube_metadata(f"ytsearch{limit}:{topic}", flat=True)
         results = []
         for entry in entries:
@@ -160,7 +161,12 @@ class BilibiliSearch:
             headers=_headers("https://www.bilibili.com/"),
         )
         response.raise_for_status()
-        data = read_envelope(response.json(), what="video search")
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("code") is None:
+            raise ValueError("invalid search envelope")
+        data = read_envelope(payload, what="video search")
+        if not isinstance(data, dict) or not isinstance(data.get("result"), list):
+            raise ValueError("invalid search results")
         results = []
         for entry in (data.get("result") or [])[:limit]:
             try:

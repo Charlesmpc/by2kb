@@ -134,3 +134,8 @@ and public session restrictions. Search success, accessible captions, completed 
 and successful knowledge publication are separate checks. Updating the local checkout
 does not upgrade an installed by2kb CLI or a running Hermes plugin. Upgrade both via
 their existing owner/package manager before testing the IM flow.
+
+
+## Query planning and retries (0.7.2)
+
+See [0.7.2 release notes](releases/0.7.2.md) for host-model planning, rule-only fallback, intent-aware ranking, bounded retries, per-source diagnostics, and shared time budgets. The raw learning request is preserved; search terms are normalized separately. Existing settings need no migration.

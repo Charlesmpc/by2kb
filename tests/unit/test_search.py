@@ -69,7 +69,7 @@ async def test_discovery_caps_preview_no_ingest_and_metadata_policy(tmp_path, mo
     provider = FakeProvider()
     config = settings(tmp_path, providers=("youtube",))
     result = await discover("我想了解一下 TiDB", config, registry=registry(provider))
-    assert provider.queries == ["TiDB"]
+    assert provider.queries == ["TiDB", "TiDB 是什么", "TiDB 入门介绍"]
     assert len(provider.previews) == len(result["candidates"]) == 3
     assert all(c["preview_status"] == "captions_ready" for c in result["candidates"])
     assert SearchStore(config.home).cache_path(result["session_id"], 1).is_file()
