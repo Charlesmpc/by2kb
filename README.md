@@ -22,12 +22,18 @@ are Bilibili and YouTube; podcast and article ingestion remain future extensions
 
 ## See it in action
 
-**Copy a video link. Send it to Hermes. Keep the knowledge.**
+**Save a video you like. Or explore a topic you want to learn.**
 
-https://github.com/user-attachments/assets/834f9e97-46f5-42a3-aeb4-66ee1a7f1020
+- **Save a video:** send its link to Hermes, then keep the transcript, short abstract,
+  and study notes in your own knowledge base.
+- **Explore a topic:** ask Hermes about a learning topic, browse relevant video
+  recommendations, and reply with a number to transcribe and save your selection.
 
-*19-second demo: Bilibili → Hermes on Telegram → knowledge notes. Chinese-language
-example; processing waits have been cut for brevity, not shown in real time. Sound optional.*
+https://github.com/user-attachments/assets/0cbec29a-f2a7-4279-bff1-a3c021574808
+
+*36.6-second demo (by2kb 0.7.3): two Hermes-on-Telegram workflows, with Chinese
+captions. Processing waits have been cut for brevity, not shown in real time.
+Sound optional.*
 
 > **[Latest release](https://github.com/Charlesmpc/by2kb/releases/latest).** Agent-guided installation, a cloud-free local Whisper
 > default, upgrade-safe personalization, Bilibili/YouTube ingestion, Agent/API
