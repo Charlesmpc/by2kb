@@ -85,6 +85,8 @@ async def discover(topic, config, *, scope="local", registry=None, client=None, 
     registry = registry or default_registry()
     providers = registry.enabled(config.search)
     plan = validate_plan(plan, topic) if plan is not None else fallback_plan(topic)
+    if budget_s is not None and (budget_s <= 0 or not __import__("math").isfinite(budget_s)):
+        raise ConfigError("search time budget exhausted")
     budget = config.search.total_timeout_s if budget_s is None else min(config.search.total_timeout_s, budget_s)
     if budget <= 0 or not __import__("math").isfinite(budget):
         raise ConfigError("search time budget exhausted")
@@ -218,7 +220,7 @@ def format_recommendations(session):
     candidates = session["candidates"]
     if not candidates:
         return ("搜索暂时未完成。\n" + "\n".join(session["warnings"])) if session["warnings"] else "没有找到匹配的视频，请尝试调整关键词。"
-    lines = [f"学习主题：{clean_text(search_query(session['topic']), 200)}", f"找到 {len(candidates)} 个候选："]
+    lines = [f"学习主题：{clean_text(session.get('query_plan', {}).get('subject') or search_query(session['topic']), 200)}", f"找到 {len(candidates)} 个候选："]
     platforms = {"youtube": "🟥 YouTube", "bilibili": "🟦 B站 · bilibili"}
     for i, item in enumerate(candidates, 1):
         clue = item.get("preview_excerpt") if item.get("preview_status") == "captions_ready" else item.get("description")
