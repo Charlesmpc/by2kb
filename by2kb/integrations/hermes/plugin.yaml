@@ -1,5 +1,5 @@
 name: by2kb
-version: "0.7.2"
+version: "0.7.3"
 description: Discover learning videos by topic, select numbered recommendations, and transcribe/enrich videos with the Hermes host model.
 author: Charlesmpc
 kind: standalone

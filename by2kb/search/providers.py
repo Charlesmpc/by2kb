@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+import weakref
 from typing import Protocol
 from urllib.parse import urlparse
 
 import httpx
 
-from by2kb.errors import ConfigError
+from by2kb.errors import ConfigError, RateLimited
 from by2kb.normalize import NormalizedTranscript, Segment, SourceMeta, TranscriptMeta
 from by2kb.providers.base import FetchOptions
 from by2kb.providers.bilibili import API_BASE, _headers, fetch_video_info, read_envelope
@@ -154,19 +155,57 @@ class YouTubeSearch:
 class BilibiliSearch:
     name = "bilibili"
 
+    def __init__(self):
+        # Discovery owns its HTTP client: anonymous cookies are scoped to that
+        # search and never read from browsers, persisted or emitted in results.
+        self._sessions = weakref.WeakKeyDictionary()
+
     async def search(self, topic, limit, client):
-        response = await client.get(
-            f"{API_BASE}/x/web-interface/search/type",
-            params={"search_type": "video", "keyword": topic, "page": 1},
-            headers=_headers("https://www.bilibili.com/"),
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict) or payload.get("code") is None:
-            raise ValueError("invalid search envelope")
-        data = read_envelope(payload, what="video search")
+        state = self._sessions.get(client)
+        if state is None:
+            state = {"endpoint": "type"}
+            self._sessions[client] = state
+            try:
+                await client.get("https://www.bilibili.com/",
+                                 headers=_headers("https://www.bilibili.com/"),
+                                 timeout=2, follow_redirects=False)
+            except httpx.RequestError:
+                # Homepage failure must not suppress a potentially usable API.
+                pass
+        endpoint = state["endpoint"]
+        params = {"keyword": topic, "page": 1}
+        if endpoint == "type": params["search_type"] = "video"
+        try:
+            response = await client.get(
+                f"{API_BASE}/x/web-interface/search/{'type' if endpoint == 'type' else 'all/v2'}",
+                params=params, headers=_headers("https://www.bilibili.com/"),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or payload.get("code") is None:
+                raise ValueError("invalid search envelope")
+            if payload.get("code") == -412:
+                raise RateLimited("video search: risk control", provider=self.name, detail=-412)
+            data = read_envelope(payload, what="video search")
+        except (httpx.HTTPStatusError, RateLimited) as error:
+            if isinstance(error, RateLimited) or error.response.status_code in {412, 429}:
+                # The service controls backoff, deadline and the shared attempt
+                # cap; the provider never adds an unbounded inner retry loop.
+                state["endpoint"] = "all/v2"
+            raise
         if not isinstance(data, dict) or not isinstance(data.get("result"), list):
             raise ValueError("invalid search results")
+        if endpoint != "type":
+            blocks = data["result"]
+            if any(not isinstance(block, dict) for block in blocks):
+                raise ValueError("invalid search result groups")
+            videos = []
+            for block in blocks:
+                if block.get("result_type") == "video":
+                    if not isinstance(block.get("data"), list):
+                        raise ValueError("invalid video search group")
+                    videos.extend(block["data"])
+            data = {"result": videos}
         results = []
         for entry in (data.get("result") or [])[:limit]:
             try:
