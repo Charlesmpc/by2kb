@@ -7,7 +7,7 @@ import re
 import secrets
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from by2kb.errors import (
     NeedsAuth,
@@ -40,6 +40,13 @@ class BilibiliVideoInfo(BaseModel):
     page: int = 1
     page_count: int = 1
     metadata_source: str = "view"
+    view_count: int | None = None
+    like_count: int | None = None
+
+    @field_validator("view_count", "like_count", mode="before")
+    @classmethod
+    def safe_metric(cls, value):
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
 def resolve(url: str) -> SourceIdentity:
@@ -155,6 +162,8 @@ async def fetch_video_info(
         duration_s=int(target.get("duration") or data.get("duration") or 0),
         page=page,
         page_count=max(len(pages), 1),
+        view_count=(data.get("stat") or {}).get("view"),
+        like_count=(data.get("stat") or {}).get("like"),
     )
 
 

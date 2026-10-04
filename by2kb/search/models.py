@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import math
 import re
 from typing import Literal
 from urllib.parse import parse_qs, urlparse
@@ -38,12 +39,25 @@ def canonical_video_url(url: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def parse_count(value: object) -> int | None:
+    """Keep missing/private metrics distinct from a genuine zero."""
+    if value is None or isinstance(value, bool):
+        return None
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([万亿]?)", str(value).replace(",", "").strip())
+    if not match:
+        return None
+    number = float(match[1]) * {"": 1, "万": 10000, "亿": 100000000}[match[2]]
+    return int(number) if math.isfinite(number) and number.is_integer() else None
+
+
 class Candidate(BaseModel):
     provider: str
     url: str
     title: str
     author: str = ""
     duration_s: float | None = None
+    view_count: int | None = None
+    like_count: int | None = None
     description: str = ""
     published_at: str = ""
     content_type: Literal["video"] = "video"
@@ -61,6 +75,11 @@ class Candidate(BaseModel):
     @classmethod
     def safe_text(cls, value):
         return clean_text(value)
+
+    @field_validator("view_count", "like_count", mode="before")
+    @classmethod
+    def safe_count(cls, value):
+        return parse_count(value)
 
     @field_validator("duration_s")
     @classmethod

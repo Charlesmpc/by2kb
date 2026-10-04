@@ -78,7 +78,7 @@ async def test_discovery_caps_preview_no_ingest_and_metadata_policy(tmp_path, mo
     result = await discover("TiDB", config, registry=registry(provider))
     assert not provider.previews
     assert all(c["preview_status"] == "metadata_only" for c in result["candidates"])
-    assert "尚未转录" in format_recommendations(result)
+    assert "尚未评审完整视频" in format_recommendations(result)
 
 
 @pytest.mark.asyncio
@@ -281,14 +281,16 @@ async def test_youtube_worker_requests_no_media_and_uses_caption_metadata(monkey
     async def metadata(source, *, flat=False):
         calls.append((source, flat))
         if flat:
-            return [{"id": "video000000", "title": "TiDB"}]
-        return {"subtitles": {"en": [{"ext": "json3", "url": "https://youtube.com/captions"}]}}
+            return [{"id": "video000000", "title": "TiDB", "view_count": 12500}]
+        return {"view_count": 13000, "like_count": 123, "subtitles": {"en": [{"ext": "json3", "url": "https://youtube.com/captions"}]}}
     monkeypatch.setattr("by2kb.search.providers.youtube_metadata", metadata)
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda req: httpx.Response(200, json={
         "events": [{"tStartMs": 0, "dDurationMs": 1000, "segs": [{"utf8": "TiDB"}]}]}))) as client:
         provider = YouTubeSearch()
         results = await provider.search("TiDB", 3, client)
+        assert results[0].view_count == 12500 and results[0].like_count is None
         preview = await provider.preview(results[0], ["en"], client, 2000)
+        assert results[0].view_count == 13000 and results[0].like_count == 123
         assert preview.transcript.segments[0].text == "TiDB"
     assert calls == [("ytsearch3:TiDB", True), (video().url, False)]
 
@@ -300,13 +302,58 @@ async def test_bilibili_search_parses_duration_and_no_caption_does_not_get_audio
         paths.append(request.url.path)
         if "search/type" in request.url.path:
             return httpx.Response(200, json={"code": 0, "data": {"result": [{"bvid": "BV1Pyta66EDh",
-                "title": '<em class="keyword">TiDB</em> tutorial', "duration": "1:02:03"}]}})
+                "title": '<em class="keyword">TiDB</em> tutorial', "duration": "1:02:03", "play": "1.2万"}]}})
         if request.url.path.endswith("view"):
-            return httpx.Response(200, json={"code": 0, "data": {"bvid": "BV1Pyta66EDh", "cid": 1, "aid": 2}})
+            return httpx.Response(200, json={"code": 0, "data": {"bvid": "BV1Pyta66EDh", "cid": 1, "aid": 2, "stat": {"view": 12005, "like": 321}}})
         return httpx.Response(200, json={"code": 0, "data": {"subtitle": {"subtitles": []}}})
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         provider = BilibiliSearch()
         results = await provider.search("TiDB", 3, client)
         assert results[0].duration_s == 3723 and results[0].title == "TiDB tutorial"
+        assert results[0].view_count == 12000
         assert await provider.preview(results[0], ["zh"], client, 2000) is None
+        assert results[0].view_count == 12005 and results[0].like_count == 321
     assert not any("playurl" in path for path in paths)
+
+
+@pytest.mark.parametrize("value,expected", [(None,None),(0,0),("1,234",1234),("1.2万",12000),(-1,None),(True,None),("unknown",None),(1.5,None)])
+def test_public_metric_normalization(value, expected):
+    assert video().model_copy().model_validate({**video().model_dump(), "view_count": value}).view_count == expected
+
+
+def test_result_cards_preserve_platforms_precision_and_missing_metrics():
+    yt = video().model_dump()
+    yt.update(duration_s=154, view_count=123456, like_count=0)
+    bili = video(1).model_dump()
+    bili.update(provider="bilibili",duration_s=3723)
+    text = format_recommendations(dict(status="awaiting_selection",topic="我想要看一看comfyui教程",candidates=[yt,bili],warnings=["bilibili: 搜索未完成"]))
+    assert "学习主题：comfyui教程" in text
+    assert "1｜🟥 YouTube" in text and "2｜🟦 B站 · bilibili" in text
+    assert "⏱ 2分34秒 · ▶ 播放 12.3万 · 👍 点赞 0" in text
+    assert "⏱ 1小时02分03秒" in text
+    assert "未提供" not in text
+    assert "搜索未完成" not in text
+    assert "预览未完成" not in text
+    assert "优先查看第 1 项" not in text
+
+
+@pytest.mark.parametrize("preview_status", ["metadata_only", "captions_ready", "no_accessible_captions", "preview_failed"])
+def test_compact_cards_hide_preview_failures_and_keep_available_metrics(preview_status):
+    candidate = video().model_dump()
+    candidate.update(preview_status=preview_status, view_count=None, like_count=None)
+    session=dict(status="awaiting_selection",topic="TiDB",candidates=[candidate],warnings=["youtube: 搜索未完成"])
+    rendered = format_recommendations(session)
+    assert "预览" not in rendered and "未提供" not in rendered
+    assert "播放" not in rendered and "点赞" not in rendered
+    assert "⏱ 2分00秒" in rendered
+    assert "video000000" in rendered
+    assert session["candidates"][0]["preview_status"] == preview_status
+
+
+def test_description_links_do_not_clutter_cards():
+    candidate=video().model_dump()
+    candidate['description']='节点入门 https://example.org/promo?tracking=1 模型配置'
+    result=format_recommendations(dict(status='awaiting_selection',topic='TiDB',candidates=[candidate],warnings=[]))
+    assert 'example.org' not in result
+    assert '节点入门 模型配置' in result
+    assert candidate['url'] in result

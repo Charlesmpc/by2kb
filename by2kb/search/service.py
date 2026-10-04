@@ -25,7 +25,7 @@ def topic_request(text: str) -> str | None:
 
 
 def search_query(topic: str) -> str:
-    return re.sub(r"^(?:我想(?:了解|学习|学)|想(?:了解|学习)|帮我(?:了解|学习))\s*(?:一下)?\s*", "", topic).strip() or topic
+    return re.sub(r"^(?:我想要看一看|我想看(?:一看)?|我想(?:了解|学习|学)|想(?:了解|学习)|帮我(?:了解|学习))\s*(?:一下)?\s*", "", topic).strip() or topic
 
 
 def relevance(candidate: Candidate, query: str) -> int:
@@ -125,6 +125,25 @@ async def discover(topic, config, *, scope="local", registry=None, client=None):
             await client.aclose()
 
 
+def format_duration(value):
+    if value is None:
+        return "未提供"
+    seconds = int(value)
+    hours, seconds = divmod(seconds, 3600)
+    minutes, seconds = divmod(seconds, 60)
+    return f"{hours}小时{minutes:02d}分{seconds:02d}秒" if hours else f"{minutes}分{seconds:02d}秒"
+
+
+def format_count(value):
+    if value is None:
+        return "未提供"
+    if value >= 100000000:
+        return f"{value / 100000000:.1f}亿"
+    if value >= 10000:
+        return f"{value / 10000:.1f}万"
+    return f"{value:,}"
+
+
 def format_recommendations(session):
     if session["status"] == "cancelled":
         return "已取消这份推荐清单。"
@@ -133,18 +152,28 @@ def format_recommendations(session):
     candidates = session["candidates"]
     if not candidates:
         return "没有找到可用候选，请换个关键词或检查已启用的检索来源。\n" + "\n".join(session["warnings"])
-    lines = [f"学习主题：{clean_text(session['topic'], 500)}", f"找到 {len(candidates)} 个候选："]
-    labels = {"metadata_only": "根据标题和简介推荐，尚未转录",
-              "captions_ready": "已取得字幕预览", "no_accessible_captions": "未取得可访问字幕，尚未转录",
-              "preview_failed": "字幕预览未完成，根据元数据推荐"}
+    lines = [f"学习主题：{clean_text(search_query(session['topic']), 200)}", f"找到 {len(candidates)} 个候选："]
+    platforms = {"youtube": "🟥 YouTube", "bilibili": "🟦 B站 · bilibili"}
     for i, item in enumerate(candidates, 1):
-        duration = f"{item['duration_s'] / 60:.0f} 分钟" if item.get("duration_s") else "时长未知"
-        lines.extend(["", f"{i}. {item['title']}",
-                      f"{item['provider']} · {item['author'] or '作者未知'} · {duration}",
-                      f"推荐依据：{item['reason']}", f"核验：{labels[item['preview_status']]}", item["url"]])
-    lines.extend(["", "优先查看第 1 项；排序依据主题词匹配和来源搜索顺序，尚未进行完整质量评审。",
-                  "回复数字选择，如 1 或 1,3。也可回复：换一批、取消；调整主题请发送 by2kb 新主题。"])
-    lines.extend(session["warnings"])
+        clue = item.get("preview_excerpt") if item.get("preview_status") == "captions_ready" else item.get("description")
+        lines.extend(["", "──────────", f"{i}｜{platforms.get(item['provider'], clean_text(item['provider'], 40))}", clean_text(item['title'], 200)])
+        if item.get("author"):
+            lines.append("作者：" + clean_text(item['author'], 90))
+        metrics = []
+        if item.get("duration_s") is not None:
+            metrics.append("⏱ " + format_duration(item['duration_s']))
+        if item.get("view_count") is not None:
+            metrics.append("▶ 播放 " + format_count(item['view_count']))
+        if item.get("like_count") is not None:
+            metrics.append("👍 点赞 " + format_count(item['like_count']))
+        if metrics:
+            lines.append(" · ".join(metrics))
+        if clue:
+            clue = clean_text(re.sub(r"https?://\S+", "", clue), 100)
+            if clue:
+                lines.append("内容线索：" + clue)
+        lines.append(item["url"])
+    lines.extend(["", "回复 1 或 1,3 开始整理；也可回复「换一批」「取消」。", "内容线索依据标题、简介或可用字幕整理，尚未评审完整视频。"])
     return "\n".join(lines)
 
 

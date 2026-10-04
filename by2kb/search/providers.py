@@ -43,7 +43,7 @@ with yt_dlp.YoutubeDL(options) as ydl:
     info = ydl.extract_info(source, download=False)
 def safe(item):
     keys = ('id', 'webpage_url', 'title', 'channel', 'uploader', 'duration', 'upload_date',
-            'subtitles', 'automatic_captions', 'language')
+            'subtitles', 'automatic_captions', 'language', 'view_count', 'like_count')
     result = {k: item.get(k) for k in keys}
     result['description'] = str(item.get('description') or '')[:1500]
     return result
@@ -126,6 +126,7 @@ class YouTubeSearch:
                     author=entry.get("channel") or entry.get("uploader") or "",
                     description=entry.get("description") or "", duration_s=entry.get("duration"),
                     published_at=entry.get("upload_date") or "",
+                    view_count=entry.get("view_count"), like_count=entry.get("like_count"),
                 ))
             except (KeyError, ValueError):
                 continue
@@ -133,6 +134,11 @@ class YouTubeSearch:
 
     async def preview(self, candidate, languages, client, max_bytes):
         info = await youtube_metadata(candidate.url)
+        # Preserve metadata even when captions are unavailable or fail afterwards.
+        for field in ("view_count", "like_count"):
+            value = Candidate.model_validate({**candidate.model_dump(), field: info.get(field)})
+            if getattr(value, field) is not None:
+                setattr(candidate, field, getattr(value, field))
         selection = _select_subtitle(info, FetchOptions(preferred_languages=languages), "prefer")
         if selection is None:
             return None
@@ -166,6 +172,8 @@ class BilibiliSearch:
                     title=clean_text(entry.get("title")), author=entry.get("author") or "",
                     description=entry.get("description") or "", duration_s=seconds,
                     published_at=str(entry.get("pubdate") or ""),
+                    view_count=entry.get("play", (entry.get("stat") or {}).get("view")),
+                    like_count=entry.get("like", (entry.get("stat") or {}).get("like")),
                 ))
             except (KeyError, ValueError):
                 continue
@@ -174,6 +182,10 @@ class BilibiliSearch:
     async def preview(self, candidate, languages, client, max_bytes):
         bvid = candidate.url.split("/video/")[1].strip("/")
         info = await fetch_video_info(client, bvid)
+        if info.view_count is not None:
+            candidate.view_count = info.view_count
+        if info.like_count is not None:
+            candidate.like_count = info.like_count
         response = await client.get(f"{API_BASE}/x/player/v2", params={"bvid": bvid, "cid": info.cid},
                                     headers=_headers(candidate.url))
         response.raise_for_status()
