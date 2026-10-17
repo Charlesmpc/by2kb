@@ -37,6 +37,13 @@ uv tool install --python 3.12 "by2kb[asr-whisper,youtube]"
 ```
 
 Install ffmpeg/ffprobe using the platform's trusted package manager if missing.
+YouTube also needs matching yt-dlp EJS scripts (included by the CLI's default
+dependencies) and Deno 2.3+ or Node.js 22+. Reuse an existing supported runtime;
+explain and obtain agreement before installing a missing runtime. `doctor --json`
+checks both. An explicit `[sources.yt_dlp] js_runtime` / `js_runtime_path` can expose
+an existing executable outside the gateway PATH without replacing configuration.
+No browser or account Cookie is required to install JS support. Do not treat JS
+readiness as proof that YouTube will permit anonymous playback.
 Confirm the knowledge-base location, then, only for a new configuration:
 
 ```bash

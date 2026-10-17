@@ -26,6 +26,7 @@ from by2kb.normalize import (
     source_meta_from_identity,
 )
 from by2kb.providers.base import FetchOptions, LocalAudio, PreparedSource, SourceIdentity
+from by2kb.providers.yt_dlp_runtime import JsSettings, js_options
 
 _SAFE_PLATFORM = re.compile(r"[^a-z0-9_-]+")
 _VTT_TIMESTAMP = re.compile(
@@ -41,6 +42,8 @@ class YtDlpSourceConfig:
     playlist_policy: str = "reject"
     cookie_file: Path | None = None
     cookies_from_browser: str | None = None
+    js_runtime: str = "auto"
+    js_runtime_path: str = ""
 
     @classmethod
     def from_mapping(cls, values: dict[str, object]) -> "YtDlpSourceConfig":
@@ -58,12 +61,15 @@ class YtDlpSourceConfig:
             raise ConfigError(
                 "configure only one of yt-dlp cookie_file or cookies_from_browser"
             )
+        js = JsSettings.from_mapping(values)
         return cls(
             enabled=_as_bool(values.get("enabled", True)),
             subtitle_policy=policy,
             playlist_policy=playlist,
             cookie_file=Path(cookie_value).expanduser() if cookie_value else None,
             cookies_from_browser=browser or None,
+            js_runtime=js.runtime,
+            js_runtime_path=js.path,
         )
 
 
@@ -75,7 +81,7 @@ class YtDlpBackend:
             raise ConfigError(
                 "yt-dlp is missing from the by2kb environment (installation is incomplete); "
                 "repair with the original package manager: "
-                "pipx inject by2kb 'yt-dlp>=2025.1.15', or for uv installs "
+                "pipx inject by2kb 'yt-dlp[default]>=2026.8.19' --upgrade, or for uv installs "
                 "uv tool upgrade by2kb. No provider configuration change is needed."
             ) from exc
 
@@ -269,6 +275,9 @@ class YtDlpSourceProvider:
             "skip_download": not download,
             "_download": download,
         }
+        options.update(js_options(JsSettings.from_mapping({
+            "js_runtime": self.config.js_runtime, "js_runtime_path": self.config.js_runtime_path,
+        })))
         if download:
             if work_dir is None:  # pragma: no cover - internal contract guard
                 raise ValueError("work_dir is required for a yt-dlp download")

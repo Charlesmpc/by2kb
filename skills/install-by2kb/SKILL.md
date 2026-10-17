@@ -20,6 +20,15 @@ Agent. Do not clone or inspect the by2kb source repository as an installation me
    `by2kb doctor --json`, explain any failures, and preserve the current ASR and
    knowledge-base choices unless the user asks to change them.
 
+For enabled YouTube/yt-dlp routes, check `by2kb doctor --json` for matching EJS
+scripts and Deno 2.3+ or Node.js 22+. Reuse a supported existing runtime. Explain
+and obtain agreement before installing a missing runtime with a trusted package
+manager; no browser is required. If the gateway PATH differs, configure only
+`[sources.yt_dlp] js_runtime` and `js_runtime_path`, preserving all other keys.
+Do not respond to a missing JS dependency by requesting login Cookies, enabling
+remote script downloads, or resetting configuration. Passing JS checks does not
+guarantee that YouTube will permit a particular video or anonymous session.
+
 ## Default: local Agent installation
 
 Use this path unless the user explicitly requests cloud ASR:

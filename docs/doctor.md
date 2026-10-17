@@ -19,6 +19,14 @@ dependency and configuration, local model presence or private TOS access, and th
 configured enrichment path. External-Agent mode also checks that the by2kb command
 is callable and the complete Hermes plugin contract is installed.
 
+For enabled yt-dlp sources, diagnostics also verify that `yt-dlp-ejs` matches the
+installed yt-dlp distribution and that Deno 2.3+ or Node.js 22+ can execute. These
+checks are offline and bounded; they never download scripts, launch a browser, or
+inspect login Cookies. Bilibili-only or explicitly disabled yt-dlp configurations
+do not require these checks. See [JS runtime configuration](source-providers.md#youtube-javascript-support).
+Passing these checks does not verify access to a particular YouTube video or
+remove YouTube's separate login/risk-control restrictions.
+
 ## JSON schema
 
 The schema is versioned for Agent hosts. Version 1 has this shape:
