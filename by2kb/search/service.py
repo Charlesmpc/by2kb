@@ -82,7 +82,7 @@ async def discover(topic, config, *, scope="local", registry=None, client=None, 
     topic = topic.strip()
     if not topic or len(topic) > 500:
         raise ConfigError("learning topic must contain 1..500 characters")
-    registry = registry or default_registry()
+    registry = registry or default_registry(config.sources.options.get("yt_dlp", {}))
     providers = registry.enabled(config.search)
     plan = validate_plan(plan, topic) if plan is not None else fallback_plan(topic)
     if budget_s is not None and (budget_s <= 0 or not __import__("math").isfinite(budget_s)):

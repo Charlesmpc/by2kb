@@ -89,6 +89,16 @@ particular video is accessible: authentication, network restrictions, and unavai
 media can still fail later. Do not run `by2kb init --force` to adopt these defaults.
 
 
+## YouTube JS dependency upgrades
+
+The JS-support fix changes the base requirement to `yt-dlp[default]`, so a normal
+package-manager upgrade installs matching EJS scripts. It does not rewrite config,
+install a browser, import Cookies, or install an operating-system runtime silently.
+Existing installations without JS settings automatically reuse Deno 2.3+ or
+Node.js 22+ from PATH; use an explicit runtime path when the gateway has a different
+environment. Run doctor after upgrading and repair missing runtimes through a
+trusted package manager. See [source configuration](source-providers.md#youtube-javascript-support).
+
 ## 0.5.1 title provenance
 
 No automatic title migration runs. Existing archives stay untouched until explicit

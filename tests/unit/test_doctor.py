@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 from by2kb import cli
 from by2kb.config import Config, SourceConfig
 from by2kb.doctor import DoctorCheck, _directory_check, run_doctor
+from by2kb.providers.yt_dlp_runtime import RuntimeStatus
 
 
 def _config(tmp_path: Path, *, provider: str = "faster_whisper") -> Config:
@@ -21,6 +22,9 @@ def _config(tmp_path: Path, *, provider: str = "faster_whisper") -> Config:
 
 
 def _passing_system_checks(monkeypatch):
+    monkeypatch.setattr("by2kb.doctor.ejs_status", lambda: (True, "Compatible EJS installed"))
+    monkeypatch.setattr("by2kb.doctor.runtime_status", lambda settings: RuntimeStatus(
+        "node", "/fixture/node", "22.0.0", "Node 22 available"))
     monkeypatch.setattr("by2kb.doctor.find_spec", lambda _name: object())
     monkeypatch.setattr(
         "by2kb.doctor._command_check",
@@ -226,6 +230,29 @@ def test_doctor_respects_disabled_ytdlp_without_checking_its_dependencies(tmp_pa
     report = run_doctor(config)
     assert any(check.id == "source_yt_dlp_disabled" and check.ok for check in report.checks)
     assert not any(check.id == "source_yt_dlp_dependency" for check in report.checks)
+    assert not any(check.id in {"source_yt_dlp_ejs", "source_yt_dlp_js_runtime"} for check in report.checks)
+
+
+def test_doctor_detects_missing_ejs_and_js_runtime_without_network(tmp_path, monkeypatch):
+    _passing_system_checks(monkeypatch)
+    monkeypatch.setattr("by2kb.doctor.ejs_status", lambda: (False, "EJS missing"))
+    monkeypatch.setattr("by2kb.doctor.runtime_status", lambda settings: RuntimeStatus())
+    checks = {check.id: check for check in run_doctor(_config(tmp_path)).checks}
+    assert not checks["source_yt_dlp_ejs"].ok
+    assert "yt-dlp[default]" in checks["source_yt_dlp_ejs"].remediation
+    assert not checks["source_yt_dlp_js_runtime"].ok
+    assert "Node.js 22" in checks["source_yt_dlp_js_runtime"].remediation
+
+
+def test_bilibili_only_does_not_require_youtube_js(tmp_path, monkeypatch):
+    _passing_system_checks(monkeypatch)
+    def unexpected(*args):
+        raise AssertionError("YouTube dependencies must not be inspected")
+    monkeypatch.setattr("by2kb.doctor.ejs_status", unexpected)
+    monkeypatch.setattr("by2kb.doctor.runtime_status", unexpected)
+    config = _config(tmp_path)
+    config.sources = SourceConfig(providers=["bilibili_native"])
+    assert not any(check.id.startswith("source_yt_dlp") for check in run_doctor(config).checks)
 
 
 def test_interactive_init_preserves_explicit_bilibili_only_choice(tmp_path):

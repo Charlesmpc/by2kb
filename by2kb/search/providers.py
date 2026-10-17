@@ -31,6 +31,7 @@ class SearchProvider(Protocol):
 _YTDLP_WORKER = r'''
 import json, sys
 import yt_dlp
+from by2kb.providers.yt_dlp_runtime import JsSettings, js_options
 sys.stdout.reconfigure(encoding='utf-8')
 class Quiet:
     def debug(self, *args): pass
@@ -40,6 +41,7 @@ source, flat = sys.argv[1], sys.argv[2] == '1'
 options = dict(quiet=True, no_warnings=True, logger=Quiet(), skip_download=True,
                noplaylist=True, extract_flat=flat, socket_timeout=8, retries=0,
                extractor_retries=0, ignoreerrors=False, cachedir=False)
+options.update(js_options(JsSettings.from_mapping(json.loads(sys.argv[3]))))
 with yt_dlp.YoutubeDL(options) as ydl:
     info = ydl.extract_info(source, download=False)
 def safe(item):
@@ -57,9 +59,9 @@ print(json.dumps(result, ensure_ascii=False))
 '''
 
 
-async def youtube_metadata(source: str, *, flat: bool = False) -> dict | list:
+async def youtube_metadata(source: str, *, flat: bool = False, js_settings: dict | None = None) -> dict | list:
     process = await asyncio.create_subprocess_exec(
-        sys.executable, "-c", _YTDLP_WORKER, source, "1" if flat else "0",
+        sys.executable, "-c", _YTDLP_WORKER, source, "1" if flat else "0", json.dumps(js_settings or {}),
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
         stdin=asyncio.subprocess.DEVNULL,
     )
@@ -115,10 +117,18 @@ def normalized_caption(candidate: Candidate, segments: list[Segment], *, languag
 class YouTubeSearch:
     name = "youtube"
 
+    def __init__(self, js_settings=None):
+        self.js_settings = js_settings
+
+    async def _metadata(self, source, *, flat=False):
+        if self.js_settings is None:
+            return await youtube_metadata(source, flat=flat)
+        return await youtube_metadata(source, flat=flat, js_settings=self.js_settings)
+
     async def search(self, topic, limit, client):
         del client
         limit = min(limit, 20)
-        entries = await youtube_metadata(f"ytsearch{limit}:{topic}", flat=True)
+        entries = await self._metadata(f"ytsearch{limit}:{topic}", flat=True)
         results = []
         for entry in entries:
             try:
@@ -135,7 +145,7 @@ class YouTubeSearch:
         return results
 
     async def preview(self, candidate, languages, client, max_bytes):
-        info = await youtube_metadata(candidate.url)
+        info = await self._metadata(candidate.url)
         # Preserve metadata even when captions are unavailable or fail afterwards.
         for field in ("view_count", "like_count"):
             value = Candidate.model_validate({**candidate.model_dump(), field: info.get(field)})
@@ -280,8 +290,10 @@ class SearchProviderRegistry:
         return providers
 
 
-def default_registry():
+def default_registry(yt_dlp_options=None):
     registry = SearchProviderRegistry()
     registry.register(BilibiliSearch())
-    registry.register(YouTubeSearch())
+    # Forward only JS settings, never cookies or credentials, into the search worker.
+    values = yt_dlp_options or {}
+    registry.register(YouTubeSearch({k: values[k] for k in ("js_runtime", "js_runtime_path") if k in values}))
     return registry

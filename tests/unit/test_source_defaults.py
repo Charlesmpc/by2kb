@@ -127,5 +127,5 @@ def test_missing_dependency_is_not_reported_as_a_provider_configuration_error(mo
 def test_ytdlp_is_a_base_dependency_and_old_extras_still_exist():
     metadata = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text())
     project = metadata["project"]
-    assert any(dep.startswith("yt-dlp>=") for dep in project["dependencies"])
+    assert any(dep.startswith("yt-dlp[default]>=") for dep in project["dependencies"])
     assert {"youtube", "source-ytdlp"} <= project["optional-dependencies"].keys()

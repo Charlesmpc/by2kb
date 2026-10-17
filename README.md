@@ -42,7 +42,9 @@ Sound optional.*
 
 ## Start here
 
-Requires Python 3.12+, `pipx`, and `ffmpeg`/`ffprobe` on PATH.
+Requires Python 3.12+, `pipx`, and `ffmpeg`/`ffprobe` on PATH. YouTube player
+challenges also need Deno 2.3+ or Node.js 22+; matching EJS scripts ship with the
+Python dependencies. `by2kb doctor` checks both. See [YouTube JS setup](docs/source-providers.md#youtube-javascript-support).
 
 ### Ask your Agent to install it
 

@@ -16,6 +16,7 @@ from by2kb.providers.asr_faster_whisper import (
 )
 from by2kb.providers.asr_registry import build_default_asr_registry
 from by2kb.providers.yt_dlp_source import YtDlpSourceConfig
+from by2kb.providers.yt_dlp_runtime import JsSettings, REPAIR_DEPENDENCIES, RUNTIME_HELP, ejs_status, runtime_status
 
 SCHEMA_VERSION = 1
 
@@ -161,11 +162,18 @@ def _source_checks(config: Config) -> list[DoctorCheck]:
                 None
                 if installed
                 else (
-                    "Repair with your original manager: pipx inject by2kb 'yt-dlp>=2025.1.15' "
-                    "or uv tool upgrade by2kb. No source configuration change is needed."
+                    REPAIR_DEPENDENCIES
                 ),
             )
         )
+        if installed:
+            ejs_ok, ejs_message = ejs_status()
+            checks.append(DoctorCheck("source_yt_dlp_ejs", ejs_ok, ejs_message,
+                                      None if ejs_ok else REPAIR_DEPENDENCIES))
+            runtime = runtime_status(JsSettings(source_config.js_runtime, source_config.js_runtime_path))
+            runtime_ok = bool(runtime.name) or runtime.disabled
+            checks.append(DoctorCheck("source_yt_dlp_js_runtime", runtime_ok, runtime.message,
+                                      None if runtime_ok else RUNTIME_HELP))
         if source_config.cookie_file:
             readable = source_config.cookie_file.is_file() and os.access(
                 source_config.cookie_file, os.R_OK

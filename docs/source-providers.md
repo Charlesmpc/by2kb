@@ -1,7 +1,7 @@
 # Source providers
 
 URL acquisition is selected independently from ASR, enrichment, and knowledge-base
-storage. Without a source override, both Bilibili and YouTube work by default.
+storage. Without a source override, both Bilibili and YouTube routes are enabled by default.
 You may override the deterministic provider order or individual options in `config.toml`:
 
 ```toml
@@ -14,10 +14,13 @@ subtitle_policy = "prefer"       # prefer | manual_only | disabled
 playlist_policy = "reject"
 cookie_file = ""
 cookies_from_browser = ""
+js_runtime = "auto"             # auto | deno | node | none
+# js_runtime_path = "/path/to/node"  # only with explicit deno or node
 ```
 
 The default order is `bilibili_native`, then `yt_dlp`. The base package includes
-yt-dlp; the `source-ytdlp` and `youtube` extras remain valid for older install commands.
+`yt-dlp[default]`, including the matching `yt-dlp-ejs` scripts; the `source-ytdlp`
+and `youtube` extras remain valid for older install commands.
 Browser support and ASR runtimes/models remain separate choices; ordinary processing
 does not install software or download a model automatically.
 
@@ -28,6 +31,47 @@ replaces the defaults rather than merging with them. A nonempty
 `[sources.yt_dlp] enabled = false` remains an explicit opt-out. These rules apply at
 load time and never rewrite user configuration. See the
 [upgrade compatibility guide](upgrading.md#bilibili-and-youtube-defaults).
+
+## YouTube JavaScript support
+
+YouTube's player challenges require matching EJS scripts plus a supported JavaScript
+runtime. by2kb defaults to `js_runtime = "auto"`: use Deno 2.3+ if available,
+otherwise Node.js 22+. Node is explicitly enabled in yt-dlp rather than merely
+assuming that an executable on PATH is sufficient. Ingestion, search, and caption
+previews use the same selection. No browser, PO Token service, login Cookie, or
+remote script download is enabled by this feature.
+
+Install a missing runtime using the platform's trusted package manager; an Agent
+must explain the dependency before installing it. Reuse a suitable installed runtime
+instead of installing a second one. The Hermes gateway must see the same PATH.
+For an existing runtime outside PATH, configure an explicit executable:
+
+```toml
+[sources.yt_dlp]
+js_runtime = "node"
+js_runtime_path = "/absolute/path/to/node"
+```
+
+Merge these keys into an existing section; do not duplicate the section or reset
+configuration. `BY2KB_YTDLP_JS_RUNTIME` and `BY2KB_YTDLP_JS_RUNTIME_PATH` override
+these keys. Missing keys inherit automatic selection without writing configuration.
+An explicit unavailable/old runtime fails rather than silently choosing another.
+`js_runtime = "none"` deliberately opts out and may reduce extraction support.
+
+Run `by2kb doctor --json` to check EJS compatibility and runtime execution/version.
+For an older installation missing EJS, repair through its original package manager:
+
+```bash
+pipx inject by2kb "yt-dlp[default]>=2026.8.19" --upgrade
+# For a uv-managed installation, after upgrading to a by2kb version with this fix:
+uv tool upgrade by2kb
+```
+
+EJS versions are constrained by yt-dlp, so update them together. A successful JS
+check is not proof that a video is accessible: YouTube can separately require
+login, reject an IP/session, or require PO Tokens. JS support does not solve
+CAPTCHAs or override platform access restrictions. Cookies remain opt-in.
+See the [upstream EJS guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
 
 ## Selection and fallback
 

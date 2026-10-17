@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.4 - 2026-10-17
+
+- Include yt-dlp's default dependencies and matching EJS scripts for YouTube.
+- Automatically enable an installed Deno 2.3+ or Node.js 22+ for ingestion,
+  search and caption previews, with explicit runtime/path and environment overrides.
+- Check EJS compatibility and runtime availability/version in doctor. Preserve
+  existing configuration and keep browser installation, Cookies and PO Token
+  services opt-in. JS readiness does not remove YouTube login restrictions.
+- See [0.7.4 release notes](docs/releases/0.7.4.md) for setup, compatibility,
+  and the verified limits of anonymous YouTube playback.
+
 ## 0.7.0 - 2026-10-04
 
 - Add configurable learning-topic discovery for Bilibili and YouTube, bounded
