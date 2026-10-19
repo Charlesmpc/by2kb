@@ -16,7 +16,10 @@ from by2kb.search.models import Candidate, canonical_video_url
 from by2kb.search.providers import (
     BilibiliSearch, SearchProviderRegistry, YouTubeSearch, caption_text, normalized_caption,
 )
-from by2kb.search.service import discover, format_recommendations, parse_selection, select_and_ingest, scope_key
+from by2kb.search.service import (
+    discover, format_recommendations, parse_selection, recommendation_messages,
+    select_and_ingest, scope_key,
+)
 from by2kb.search.store import SearchStore
 from by2kb.normalize import Segment
 
@@ -114,7 +117,7 @@ async def test_timeout_cancellation_and_dedupe(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_named_subject_filter_and_global_relevance_ranking(tmp_path):
+async def test_named_subject_filter_and_provider_order(tmp_path):
     class Bili(FakeProvider):
         name = "bilibili"
         async def search(self, *args):
@@ -126,7 +129,7 @@ async def test_named_subject_filter_and_global_relevance_ranking(tmp_path):
     config = settings(tmp_path, preview_mode="metadata_only")
     result = await discover("TiDB vector search tutorial", config, registry=registry(Bili(), Youtube()))
     assert len(result["candidates"]) == 2
-    assert result["candidates"][0]["title"] == "TiDB vector search tutorial"
+    assert [c["title"] for c in result["candidates"]] == ["TiDB basics", "TiDB vector search tutorial"]
     assert not any(c["title"] == "Vector illustration" for c in result["candidates"])
 
 
@@ -357,3 +360,193 @@ def test_description_links_do_not_clutter_cards():
     assert 'example.org' not in result
     assert '节点入门 模型配置' in result
     assert candidate['url'] in result
+
+
+class BiliListProvider(FakeProvider):
+    name = "bilibili"
+
+    async def search(self, topic, limit, client):
+        self.queries.append(topic)
+        # Both sources match, but YouTube's stronger lexical matches must not
+        # consume this source's quota. Lower-ranked duplicates are not counted.
+        rows = [Candidate(provider=self.name,
+                          url=f"https://www.bilibili.com/video/BV1MjjSzCEv{n}/",
+                          title=f"TiDB basics {n}", duration_s=120)
+                for n in range(7)]
+        return [rows[0], *rows]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [3, 5])
+@pytest.mark.parametrize("order", [("bilibili", "youtube"), ("youtube", "bilibili")])
+async def test_independent_provider_quotas_order_and_caption_cache(tmp_path, limit, order):
+    bili, youtube = BiliListProvider(), FakeProvider()
+    cfg = settings(tmp_path, providers=order, max_candidates=limit, retry_base_s=0)
+    result = await discover("TiDB vector index", cfg, registry=registry(youtube, bili))
+    assert len(result["candidates"]) == 2 * limit
+    assert [c["provider"] for c in result["candidates"]] == [order[0]] * limit + [order[1]] * limit
+    assert result["provider_lists"] == [
+        {"provider": order[0], "candidate_numbers": list(range(1, limit + 1)), "outcome": "ok"},
+        {"provider": order[1], "candidate_numbers": list(range(limit + 1, 2 * limit + 1)), "outcome": "ok"},
+    ]
+    assert len(bili.previews) == len(youtube.previews) == limit
+    store = SearchStore(cfg.home)
+    assert store.latest("local")["provider_lists"] == result["provider_lists"]
+    for number, candidate in enumerate(result["candidates"], 1):
+        cache = json.loads(store.cache_path(result["session_id"], number).read_text(encoding="utf-8"))
+        assert cache["source"]["canonical_url"] == candidate["url"]
+        assert candidate["preview_status"] == "captions_ready"
+    messages = recommendation_messages(result)
+    assert len(messages) == 2
+    for group, message in zip(result["provider_lists"], messages):
+        for number in group["candidate_numbers"]:
+            assert f"{number}｜" in message
+        for other in set(range(1, 2 * limit + 1)) - set(group["candidate_numbers"]):
+            assert f"\n{other}｜" not in message
+        assert f"回复 {group['candidate_numbers'][0]}" in message
+    assert result["candidates"][limit - 1]["url"] != result["candidates"][0]["url"]
+
+
+@pytest.mark.asyncio
+async def test_cross_provider_selection_above_five_reuses_correct_cache(tmp_path, monkeypatch):
+    cfg = settings(tmp_path, max_candidates=5, retry_base_s=0)
+    result = await discover("TiDB", cfg, registry=registry(BiliListProvider(), FakeProvider()))
+    calls = []
+    async def ingest(url, config, **kwargs):
+        calls.append((url, kwargs["cached_transcript"]))
+        return IngestOutcome(exit_code=0, status="completed")
+    monkeypatch.setattr("by2kb.jobs.runner.ingest_source", ingest)
+    selected = await select_and_ingest(result["session_id"], "1,6,10", cfg)
+    assert [item["number"] for item in selected["results"]] == [1, 6, 10]
+    for (url, cached), number in zip(calls, (1, 6, 10)):
+        assert url == cached.source.canonical_url == result["candidates"][number - 1]["url"]
+    await select_and_ingest(result["session_id"], "1,6,10", cfg)
+    assert len(calls) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed", [False, True])
+async def test_empty_and_failed_sources_keep_their_own_list(tmp_path, failed):
+    class Empty(FakeProvider):
+        async def search(self, *args):
+            if failed:
+                raise RuntimeError("private error must not leak")
+            return []
+    cfg = settings(tmp_path, preview_mode="metadata_only", retry_base_s=0)
+    result = await discover("TiDB", cfg, registry=registry(BiliListProvider(), Empty()))
+    assert result["status"] == "awaiting_selection"
+    assert len(result["candidates"]) == 3
+    assert result["provider_lists"][1]["candidate_numbers"] == []
+    first, second = recommendation_messages(result)
+    assert "B站" in first and "YouTube" not in first
+    assert "YouTube（0 个候选）" in second and "B站" not in second
+    assert ("搜索暂时未完成" if failed else "没有找到匹配的视频") in second
+    assert "private error" not in json.dumps(result)
+    assert "回复" not in second
+
+
+@pytest.mark.asyncio
+async def test_disabled_source_is_not_given_a_list(tmp_path):
+    class Forbidden(FakeProvider):
+        async def search(self, *args):
+            raise AssertionError("disabled source called")
+    cfg = settings(tmp_path, options={"youtube": {"enabled": False}}, preview_mode="metadata_only")
+    result = await discover("TiDB", cfg, registry=registry(BiliListProvider(), Forbidden()))
+    assert [group["provider"] for group in result["provider_lists"]] == ["bilibili"]
+    assert len(recommendation_messages(result)) == 1
+    assert "YouTube" not in format_recommendations(result)
+
+
+def test_cli_latest_groups_legacy_lists_without_renumbering_or_rewriting(tmp_path, monkeypatch):
+    cfg = settings(tmp_path)
+    monkeypatch.setenv("BY2KB_HOME", str(cfg.home))
+    store = SearchStore(cfg.home)
+    session = store.begin("TiDB", "local", 3600)
+    # An old interleaved session must keep 1/3 for YouTube and 2 for Bilibili.
+    session.update(status="awaiting_selection", candidates=[
+        video(0).model_dump(), video(1, "bilibili").model_dump(), video(2).model_dump(),
+    ], sources=[{"provider": "bilibili", "outcome": "ok"}, {"provider": "youtube", "outcome": "ok"}])
+    store.save(session)
+    payload = json.loads(CliRunner().invoke(app, ["search", "latest", "--json"]).output)
+    assert payload["candidates"] == session["candidates"]
+    assert [group["candidate_numbers"] for group in payload["provider_lists"]] == [[2], [1, 3]]
+    assert "2｜" in payload["messages"][0] and "1｜" not in payload["messages"][0]
+    assert "1｜" in payload["messages"][1] and "3｜" in payload["messages"][1]
+    assert store.latest("local") == session
+
+
+def test_cli_grouped_discover_latest_and_cross_provider_select(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    config_file = home / "config.toml"
+    config_file.write_text('library_root = "custom-knowledge-base"\nasr_provider = "doubao_auc"\n'
+                           '[search]\nmax_candidates = 3\nretry_base_s = 0\n'
+                           '[search.preview]\nmode = "metadata_only"\n', encoding="utf-8")
+    original_config = config_file.read_bytes()
+    monkeypatch.setenv("BY2KB_HOME", str(home))
+    monkeypatch.setattr("by2kb.search.service.default_registry", lambda *args: registry(BiliListProvider(), FakeProvider()))
+    calls = []
+    async def ingest(url, config, **kwargs):
+        calls.append((url, config))
+        return IngestOutcome(exit_code=0, status="completed")
+    monkeypatch.setattr("by2kb.jobs.runner.ingest_source", ingest)
+    cli = CliRunner()
+    discovered = cli.invoke(app, ["search", "discover", "TiDB", "--scope", "alice", "--json"])
+    assert discovered.exit_code == 0, discovered.output
+    payload = json.loads(discovered.output)
+    assert len(payload["candidates"]) == 6
+    assert len(payload["messages"]) == len(payload["provider_lists"]) == 2
+    assert not calls  # Discovery is metadata/caption-only, never ingestion.
+    latest = json.loads(cli.invoke(app, ["search", "latest", "--scope", "alice", "--json"]).output)
+    assert latest["provider_lists"] == payload["provider_lists"]
+    assert latest["messages"] == payload["messages"]
+    wrong_scope = cli.invoke(app, ["search", "select", payload["session_id"], "6", "--scope", "bob", "--json"])
+    assert wrong_scope.exit_code == 1 and not calls
+    selected = cli.invoke(app, ["search", "select", payload["session_id"], "2,6", "--scope", "alice", "--json"])
+    assert selected.exit_code == 0, selected.output
+    assert [r["number"] for r in json.loads(selected.output)["results"]] == [2, 6]
+    assert [url for url, _ in calls] == [payload["candidates"][n - 1]["url"] for n in (2, 6)]
+    assert all(config.asr_provider == "doubao_auc" and str(config.library_root) == "custom-knowledge-base"
+               for _, config in calls)
+    assert config_file.read_bytes() == original_config
+
+
+@pytest.mark.asyncio
+async def test_legacy_selection_keeps_original_number_and_cache(tmp_path, monkeypatch):
+    cfg = settings(tmp_path)
+    store = SearchStore(cfg.home)
+    session = store.begin("TiDB", "local", 3600)
+    first, second = video(0), video(1, "bilibili")
+    second.preview_status = "captions_ready"
+    second.caption_sha256 = store.put_caption(session["session_id"], 2, captions(second))
+    session.update(status="awaiting_selection", candidates=[first.model_dump(), second.model_dump()])
+    store.save(session)
+    assert len(recommendation_messages(session)) == 2
+    calls = []
+    async def ingest(url, config, **kwargs):
+        calls.append((url, kwargs["cached_transcript"]))
+        return IngestOutcome(exit_code=0, status="completed")
+    monkeypatch.setattr("by2kb.jobs.runner.ingest_source", ingest)
+    await select_and_ingest(session["session_id"], "2", cfg)
+    assert calls[0][0] == calls[0][1].source.canonical_url == second.url
+
+
+@pytest.mark.parametrize("number", [0, -1, True, "6", "../6"])
+def test_caption_cache_identity_stays_validated(tmp_path, number):
+    with pytest.raises(ConfigError, match="cache identity"):
+        SearchStore(tmp_path).cache_path("a" * 32, number)
+
+
+def test_separate_provider_messages_fit_telegram_limit():
+    session = dict(status="awaiting_selection", topic="主题" * 250, warnings=[], candidates=[])
+    for provider in ("bilibili", "youtube"):
+        for n in range(5):
+            item = video(n, provider).model_dump()
+            item.update(title="🎬" * 200, author="🎬" * 90, description="🎬" * 100,
+                        duration_s=9999999, view_count=9999999999, like_count=9999999999)
+            session["candidates"].append(item)
+    messages = recommendation_messages(session)
+    assert len(messages) >= 2
+    assert all(len(message.encode("utf-16-le")) // 2 <= 4096 for message in messages)
+    assert sum(message.count("｜") for message in messages) == 10
+    assert all(not ("B站" in message and "YouTube" in message) for message in messages)

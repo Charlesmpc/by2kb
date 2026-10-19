@@ -13,7 +13,8 @@ Standalone users can run the same pipeline with their own OpenAI-compatible API 
 
 **Learning-topic discovery (new in 0.7.0).** Send
 `by2kb 我想了解一下 TiDB 向量检索` through the updated Hermes plugin to get
-3–5 numbered video recommendations, then reply with a number to enter the normal
+separate Bilibili and YouTube recommendation lists (up to 3–5 videos per enabled
+source in 0.7.5), then reply with a globally unique number to enter the normal
 transcription and knowledge-base workflow. Search sources are individually configurable;
 caption-only previews never download audio or run ASR. See
 [topic search and configuration](docs/topic-search.md) for CLI usage, selection

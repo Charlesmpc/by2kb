@@ -25,7 +25,8 @@ class InlineThread:
 
 
 @pytest.mark.asyncio
-async def test_explicit_topic_then_numeric_reply_scope_and_enrichment(monkeypatch):
+@pytest.mark.parametrize("separate_lists", [False, True])
+async def test_explicit_topic_then_numeric_reply_scope_and_enrichment(monkeypatch, separate_lists):
     calls, replies, scopes = [], [], []
     searching = {"value": True}
     def run(arguments, **kwargs):
@@ -35,7 +36,10 @@ async def test_explicit_topic_then_numeric_reply_scope_and_enrichment(monkeypatc
         if arguments[:2] == ["search", "discover"]:
             searching["value"] = False
             scopes.append(arguments[arguments.index("--scope") + 1])
-            return {"session_id": "session", "status": "awaiting_selection", "message": "1. Real candidate"}
+            payload = {"session_id": "session", "status": "awaiting_selection", "message": "1. Real candidate"}
+            if separate_lists:
+                payload["messages"] = ["B站 list: 1. Real candidate", "YouTube list: 4. Other candidate"]
+            return payload
         if arguments[:2] == ["search", "latest"]:
             scopes.append(arguments[arguments.index("--scope") + 1])
             return {"session_id": "session", "status": "searching" if searching["value"] else "awaiting_selection", "topic": "TiDB"}
@@ -52,9 +56,14 @@ async def test_explicit_topic_then_numeric_reply_scope_and_enrichment(monkeypatc
     hermes.register(context)
     gateway = SimpleNamespace(_is_user_authorized=lambda source: True, adapters={"telegram": object()})
     assert context.hook(event("by2kb 我想了解 TiDB"), gateway)["action"] == "skip"
-    assert context.hook(event("1"), gateway)["action"] == "skip"
+    assert context.hook(event("4" if separate_lists else "1"), gateway)["action"] == "skip"
     assert len(set(scopes)) == 1
     assert any("Real candidate" in reply for reply in replies)
+    if separate_lists:
+        assert "B站 list: 1. Real candidate" in replies
+        assert "YouTube list: 4. Other candidate" in replies
+        assert "1. Real candidate" not in replies  # Do not also send the merged fallback.
+        assert any(call[:3] == ["search", "select", "session"] and call[3] == "4" for call in calls)
     assert any("summary" in reply for reply in replies)
     assert calls[0][2] == "我想了解 TiDB"
     assert any(call[:2] == ["search", "select"] for call in calls)

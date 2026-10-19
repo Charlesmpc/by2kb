@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.5 - 2026-10-19
+
+- Keep Bilibili and YouTube search recommendations in separate provider lists,
+  each with its own 3–5 candidate limit, within-source ranking and diagnostics.
+- Use continuous global selection numbers across lists; Hermes sends a separate
+  message for each source, with fallback support for older CLI/plugin versions.
+- Support caption caching and selection beyond number five. Preserve old list
+  indices/caches, existing source configuration and all knowledge-base settings.
+- Clarify optional platform authentication: reuse an explicitly authorized local
+  browser session or Cookie file; login and JS support solve different requirements.
+- See [0.7.5 release notes](docs/releases/0.7.5.md) for upgrade and preview limits.
+
 ## 0.7.4 - 2026-10-17
 
 - Include yt-dlp's default dependencies and matching EJS scripts for YouTube.

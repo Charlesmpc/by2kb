@@ -4,8 +4,8 @@ Available in by2kb 0.7.0. Upgrade both the CLI and the Hermes plugin to use the
 gateway discovery and numeric-selection flow.
 
 Send `by2kb 我想了解一下 TiDB 向量检索` to the updated Hermes plugin. It
-searches enabled sources, returns up to 3–5 numbered candidates with original
-links and recommendation evidence, then waits. Reply `1` or `1,3` to start the
+searches enabled sources, returns a separate list of up to 3–5 numbered candidates
+per source with original links and recommendation evidence, then waits. Reply `1` or `1,3` to start the
 existing transcript → abstract → study-notes pipeline. `换一批` reruns the search;
 `取消` cancels the recommendation list. Send `by2kb NEW_TOPIC` to refine the query.
 Bare supported video URLs retain their existing ingestion behavior.
@@ -23,7 +23,7 @@ enrichment, browser, or knowledge-base settings.
 [search]
 enabled = true
 providers = ["bilibili", "youtube"]
-max_candidates = 3               # 3..5; fewer results are allowed, never fabricated
+max_candidates = 3               # 3..5 per enabled provider; never pad sparse lists
 timeout_s = 20                   # deadline per source, sources run concurrently
 session_ttl_s = 3600             # lifetime of a recommendation list
 
@@ -70,10 +70,34 @@ as available here.
   instructions contained in it, invent facts, or claim to have inspected a full
   transcript from the bounded excerpt.
 
-The deterministic default screens at most five results per source for topic-word
-matches in titles/descriptions, sorts by this transparent lexical score with source
-order as a tie-breaker. The merged list sorts by topic match, interleaves sources
-when scores tie, and deduplicates canonical URLs.
+Since 0.7.5, every enabled search provider has its own `max_candidates` quota.
+Sources appear in `[search].providers` order, after skipping explicitly disabled
+sources. Candidates are screened for topic-word matches in titles/descriptions,
+then ranked within each source by lexical relevance and learning intent. Canonical
+URLs are deduplicated; lists are never merged into a cross-platform ranking or
+padded with unrelated results. An empty or unavailable source retains its own
+labelled section; a failed search is not reported as proof that no videos exist.
+
+For example, with the default limit of three and enough relevant results:
+
+```text
+B站 · bilibili
+1 | Bilibili video
+2 | Bilibili video
+3 | Bilibili video
+
+YouTube
+4 | YouTube video
+5 | YouTube video
+6 | YouTube video
+```
+
+Numbers remain globally unique across the lists. Reply `2,5` to select one video
+from each platform. A sparse list uses only its actual numbers; a zero-result
+source consumes none. Hermes sends each platform's list separately, with the same
+global numbers, rather than one oversized mixed list. Long lists are split at
+video-card boundaries into bounded messages without mixing platforms. Ranking is
+not compared across platforms.
 It is deliberately conservative: a named subject such as TiDB must appear in the
 metadata, and an insufficient result set is not padded with unrelated videos. This
 is not multilingual semantic relevance; refine the topic when needed.
@@ -104,7 +128,12 @@ missing. Scope is a host-owned isolation key, not an authentication credential;
 Hermes authorization is checked before the hook runs.
 
 JSON includes `schema_version`, a program-generated `session_id`, topic, status,
-candidates, warnings, and a display `message`. Selection returns one ingestion
+candidates, warnings, and a display `message`. In 0.7.5, `provider_lists` contains
+one `{provider, candidate_numbers, outcome}` entry per enabled search source,
+including empty/failed sources. `candidate_numbers` are one-based references into
+the unchanged flat `candidates` array; `messages` contains the separate per-source
+display messages. The combined `message` remains available for older hosts and
+plain-text CLI output, with distinct platform sections. Selection returns one ingestion
 outcome per number, including `job_id`, status, artifacts, and exit code. Hosts
 continue the existing staged enrichment protocol for `enrichment_pending` results.
 The CLI exits nonzero if any ingestion failed; JSON still contains individual results.
@@ -121,6 +150,11 @@ pending enrichment and retries failures. Choosing a different set requires a new
 search. Locks prevent concurrent duplicate selection submissions. After a selection
 is submitted, cancel actual jobs with `by2kb cancel JOB_ID`; cancelling a list is
 not cancellation of an already-running transcription.
+
+Upgrading does not rewrite configuration or old saved sessions. Pre-0.7.5 lists
+keep their original candidate indices and caption-cache identities, even when the
+display is grouped by source. `search latest` derives display groups without
+renumbering or rewriting the saved list. See [upgrade notes](upgrading.md#075-per-platform-search-lists).
 
 ## Verification
 

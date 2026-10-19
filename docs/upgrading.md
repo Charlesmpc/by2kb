@@ -99,6 +99,28 @@ Node.js 22+ from PATH; use an explicit runtime path when the gateway has a diffe
 environment. Run doctor after upgrading and repair missing runtimes through a
 trusted package manager. See [source configuration](source-providers.md#youtube-javascript-support).
 
+## 0.7.5 per-platform search lists
+
+`[search].max_candidates` now limits each enabled search provider independently,
+instead of a single merged list. With both built-in platforms and a value of three,
+up to six candidates can be shown; five permits up to ten. Search-only caption
+previews may therefore increase to the same total, but the existing per-preview
+size limits and shared overall deadline still apply. Search never downloads audio
+or starts ASR; ingestion still waits for the user's numbered selection.
+
+No config or session migration is needed. Explicitly disabled sources stay disabled,
+provider order is preserved, and all ASR, authentication, knowledge-base paths and
+custom Skills are untouched. Existing recommendation lists keep their saved numbers
+and caption caches. Start a new search to obtain the independent per-source quotas.
+
+The CLI returns separate `messages` for capable hosts and retains the combined
+`message` with platform sections for older hosts. Upgrade the Hermes plugin through
+its existing owner to send each platform's list separately with bounded message
+lengths; an older plugin still uses the combined display with unchanged numeric
+selection, and needs its host adapter to handle long messages. Personalized runtime
+Skills take precedence: review their presentation instructions if they demand a
+single merged ranking, rather than overwriting them during an upgrade.
+
 ## 0.5.1 title provenance
 
 No automatic title migration runs. Existing archives stay untouched until explicit

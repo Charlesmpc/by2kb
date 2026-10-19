@@ -44,6 +44,10 @@ checks both. An explicit `[sources.yt_dlp] js_runtime` / `js_runtime_path` can e
 an existing executable outside the gateway PATH without replacing configuration.
 No browser or account Cookie is required to install JS support. Do not treat JS
 readiness as proof that YouTube will permit anonymous playback.
+If a real video requests authentication, use the optional platform sign-in guidance
+in `by2kb:video-to-knowledge`: obtain consent for a specific local browser session,
+do not require a Cookie-export extension, never expose secrets, and preserve all
+existing configuration. Do not install a browser or PO Token service by default.
 Confirm the knowledge-base location, then, only for a new configuration:
 
 ```bash

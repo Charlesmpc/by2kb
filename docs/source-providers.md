@@ -99,6 +99,23 @@ both. by2kb passes the selected option to yt-dlp but does not copy cookie conten
 the job database, logs, or knowledge artifacts. `doctor` checks a configured cookie
 file for readability without printing its contents.
 
+Public videos are attempted anonymously by default; installation does not require
+a platform login. If YouTube requests sign-in or human verification, sign in to
+YouTube in a browser on the agent host and explicitly authorize use of that profile.
+A Cookie-export extension is not required. For a supported default browser profile,
+`cookies_from_browser = "firefox"` (or another supported browser name) delegates
+reading to yt-dlp. This by2kb setting currently accepts a browser name only, not
+yt-dlp CLI profile-selector syntax. For a custom profile, use an authorized,
+YouTube-only private Cookie file instead. Access may depend on the same OS user
+and the operating system's credential protection.
+
+Sessions may expire or rotate; refreshed Cookies can require renewed user login.
+Do not promise that one login works forever or guarantees access to every video.
+Missing JS dependencies and authentication restrictions are different failures.
+Never paste Cookies into IM or logs, and do not automatically export unrelated
+sites' sessions. See [yt-dlp's authentication guidance](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies).
+This opt-in flow does not enable a background browser or automatic refresh service.
+
 Public provenance records the source provider/version, extractor, selected caption
 language and kind, or the fact that audio fallback was used. Temporary caption URLs,
 media URLs, request headers, and cookies are not published.

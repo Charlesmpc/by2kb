@@ -9,7 +9,7 @@ from by2kb.errors import ConfigError
 class SearchConfig:
     enabled: bool = True
     providers: tuple[str, ...] = ("bilibili", "youtube")
-    max_candidates: int = 3
+    max_candidates: int = 3  # Per enabled search provider, not a shared quota.
     timeout_s: float = 20
     total_timeout_s: float = 28
     attempt_timeout_s: float = 8
