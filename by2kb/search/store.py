@@ -90,7 +90,8 @@ class SearchStore:
             return session
 
     def cache_path(self, session_id: str, number: int) -> Path:
-        if not (len(session_id) == 32 and all(c in "0123456789abcdef" for c in session_id)) or not 1 <= number <= 5:
+        if (not (len(session_id) == 32 and all(c in "0123456789abcdef" for c in session_id))
+                or type(number) is not int or number < 1):
             raise ConfigError("invalid search cache identity")
         return self.root / "captions" / session_id / f"{number}.json"
 

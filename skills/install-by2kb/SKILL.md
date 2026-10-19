@@ -28,6 +28,12 @@ manager; no browser is required. If the gateway PATH differs, configure only
 Do not respond to a missing JS dependency by requesting login Cookies, enabling
 remote script downloads, or resetting configuration. Passing JS checks does not
 guarantee that YouTube will permit a particular video or anonymous session.
+If YouTube requests authentication, have the user sign in on the agent host and
+authorize use of a specific local browser profile. A Cookie-export extension is
+optional. Use a supported browser name in `cookies_from_browser`, or a private,
+YouTube-only `cookie_file` for a custom profile, never both. Do not expose Cookie
+values or unrelated sessions. Login can expire and is not a guarantee of access;
+browsers and PO Token services remain opt-in. Verify one selected video after setup.
 
 ## Default: local Agent installation
 

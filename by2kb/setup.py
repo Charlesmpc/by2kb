@@ -106,7 +106,7 @@ def render_config_toml(settings: InitSettings) -> str:
         "[search]",
         "enabled = true",
         'providers = ["bilibili", "youtube"]',
-        "max_candidates = 3",
+        "max_candidates = 3  # Per enabled search provider",
         "total_timeout_s = 28",
         "attempt_timeout_s = 8",
         "max_attempts = 3",

@@ -56,7 +56,7 @@ def search_topic(
     session_id: str | None = typer.Option(None, "--session-id", help="Pending search session"),
 ) -> None:
     _configure_stdio()
-    from by2kb.search.service import discover, format_recommendations
+    from by2kb.search.service import discover, format_recommendations, recommendation_messages
     try:
         plan = None
         if plan_file is not None:
@@ -69,6 +69,7 @@ def search_topic(
     except By2kbError as exc:
         _command_error(exc, json_out)
     payload["message"] = format_recommendations(payload)
+    payload["messages"] = recommendation_messages(payload)
     typer.echo(json.dumps(payload, ensure_ascii=False) if json_out else payload["message"] + f"\n\nSearch ID: {payload['session_id']}")
 
 
@@ -109,14 +110,16 @@ def search_select(
 @search_app.command("latest")
 def search_latest(scope: str = typer.Option("local", "--scope"), json_out: bool = typer.Option(False, "--json")) -> None:
     from by2kb.search.store import SearchStore
-    from by2kb.search.service import format_recommendations
+    from by2kb.search.service import format_recommendations, recommendation_lists, recommendation_messages
     _configure_stdio()
     try:
         payload = SearchStore(load_config().home).latest(scope)
     except By2kbError as exc:
         _command_error(exc, json_out)
     if payload and payload["status"] in {"awaiting_selection", "selected"}:
+        payload["provider_lists"] = recommendation_lists(payload)
         payload["message"] = format_recommendations(payload)
+        payload["messages"] = recommendation_messages(payload)
     typer.echo(json.dumps(payload, ensure_ascii=False) if json_out else (payload or {}).get("message", "No active recommendations"))
 
 

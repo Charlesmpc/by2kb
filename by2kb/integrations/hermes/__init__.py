@@ -145,7 +145,10 @@ def _process_search(ctx, loop, adapter, chat_id, reply_to, scope, action, reques
                 return
             latest = _run_by2kb(["search", "latest", "--scope", scope, "--json"])
             if latest and latest["session_id"] == payload["session_id"] and latest["status"] != "cancelled":
-                _send(loop, adapter, chat_id, payload["message"], reply_to)
+                # New CLIs return one list per source. Older CLIs retain a single
+                # message; never regenerate numbers in the host model.
+                for message in payload.get("messages") or [payload["message"]]:
+                    _send(loop, adapter, chat_id, message, reply_to)
         elif action == "cancel":
             _run_by2kb(["search", "cancel", session_id, "--scope", scope, "--json"])
             _send(loop, adapter, chat_id, "已取消这份推荐清单。", reply_to)

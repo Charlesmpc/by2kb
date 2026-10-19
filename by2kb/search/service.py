@@ -156,11 +156,19 @@ async def discover(topic, config, *, scope="local", registry=None, client=None, 
         session["warnings"] = [warning for _, warning, _ in batches if warning]
         session["sources"] = [diagnostic for _, _, diagnostic in batches]
         chosen, seen = [], set()
-        for rank in range(max((len(candidates) for candidates, _, _ in batches), default=0)):
-            for candidates, _, _ in batches:
-                if rank < len(candidates) and candidates[rank].url not in seen:
-                    chosen.append(candidates[rank].model_copy(deep=True)); seen.add(candidates[rank].url)
-        chosen = sorted(chosen, key=lambda c: (relevance(c, plan["subject"]), intent_score(c, plan["intent"])), reverse=True)[:config.search.max_candidates]
+        # Each source owns its quota and ranking; a stronger match on another
+        # platform must not crowd it out. Keep configured source order and stable
+        # global numbers for selection and caption-cache identity.
+        for candidates, _, _ in batches:
+            added = 0
+            for candidate in candidates:
+                if candidate.url in seen:
+                    continue
+                chosen.append(candidate.model_copy(deep=True))
+                seen.add(candidate.url)
+                added += 1
+                if added >= config.search.max_candidates:
+                    break
         by_name = {p.name: p for p in providers}
 
         async def preview(number, candidate):
@@ -183,6 +191,7 @@ async def discover(topic, config, *, scope="local", registry=None, client=None, 
 
         await asyncio.gather(*(preview(i, c) for i, c in enumerate(chosen, 1)))
         session["candidates"] = [c.model_dump() for c in chosen]
+        session["provider_lists"] = recommendation_lists(session)
         session["status"] = "awaiting_selection" if chosen else "search_failed" if session["warnings"] else "no_results"
         session["elapsed_s"] = round(time.monotonic() - started, 3)
         store.finish(session)
@@ -212,39 +221,108 @@ def format_count(value):
     return f"{value:,}"
 
 
-def format_recommendations(session):
+def recommendation_lists(session):
+    """Group stable selection numbers, including for pre-0.7.5 sessions.
+
+    The flat persisted candidate array remains the selection/cache authority.
+    Never renumber old interleaved lists or migrate their stored captions.
+    """
+    groups = {
+        source["provider"]: {"provider": source["provider"],
+                             "candidate_numbers": [], "outcome": source["outcome"]}
+        for source in session.get("sources", [])
+    }
+    for number, candidate in enumerate(session["candidates"], 1):
+        provider = candidate["provider"]
+        group = groups.setdefault(provider, {"provider": provider,
+                                             "candidate_numbers": [], "outcome": "ok"})
+        group["candidate_numbers"].append(number)
+    return list(groups.values())
+
+
+def format_recommendations(session, *, provider=None, candidate_numbers=None):
     if session["status"] == "cancelled":
         return "已取消这份推荐清单。"
     if session["status"] == "superseded":
         return "这次搜索已被后续请求替代，请使用最新推荐清单。"
     candidates = session["candidates"]
-    if not candidates:
+    groups = recommendation_lists(session)
+    if provider is not None:
+        groups = [group for group in groups if group["provider"] == provider]
+    if candidate_numbers is not None:
+        allowed = set(candidate_numbers)
+        groups = [{**group, "candidate_numbers": [n for n in group["candidate_numbers"] if n in allowed]}
+                  for group in groups]
+    numbers = [number for group in groups for number in group["candidate_numbers"]]
+    if not candidates and not session.get("sources"):
         return ("搜索暂时未完成。\n" + "\n".join(session["warnings"])) if session["warnings"] else "没有找到匹配的视频，请尝试调整关键词。"
-    lines = [f"学习主题：{clean_text(session.get('query_plan', {}).get('subject') or search_query(session['topic']), 200)}", f"找到 {len(candidates)} 个候选："]
+    lines = [f"学习主题：{clean_text(session.get('query_plan', {}).get('subject') or search_query(session['topic']), 200)}", f"找到 {len(numbers)} 个候选："]
+    if not numbers and provider is None:
+        lines[1] = "搜索暂时未完成。" if session["warnings"] else "没有找到匹配的视频，请尝试调整关键词。"
     platforms = {"youtube": "🟥 YouTube", "bilibili": "🟦 B站 · bilibili"}
-    for i, item in enumerate(candidates, 1):
-        clue = item.get("preview_excerpt") if item.get("preview_status") == "captions_ready" else item.get("description")
-        lines.extend(["", "──────────", f"{i}｜{platforms.get(item['provider'], clean_text(item['provider'], 40))}", clean_text(item['title'], 200)])
-        if item.get("author"):
-            lines.append("作者：" + clean_text(item['author'], 90))
-        metrics = []
-        if item.get("duration_s") is not None:
-            metrics.append("⏱ " + format_duration(item['duration_s']))
-        if item.get("view_count") is not None:
-            metrics.append("▶ 播放 " + format_count(item['view_count']))
-        if item.get("like_count") is not None:
-            metrics.append("👍 点赞 " + format_count(item['like_count']))
-        if metrics:
-            lines.append(" · ".join(metrics))
-        if clue:
-            clue = clean_text(re.sub(r"https?://\S+", "", clue), 100)
+    for group in groups:
+        label = platforms.get(group["provider"], clean_text(group["provider"], 40))
+        group_numbers = group["candidate_numbers"]
+        lines.extend(["", f"{label}（{len(group_numbers)} 个候选）"])
+        if not group_numbers:
+            lines.append("没有找到匹配的视频。" if group["outcome"] in {"ok", "empty", "filtered_empty"}
+                         else "搜索暂时未完成；不能据此判断没有相关视频。")
+        elif group["outcome"] == "partial":
+            lines.append("该平台搜索未完全完成，以下为已找到的候选。")
+        for i in group_numbers:
+            item = candidates[i - 1]
+            clue = item.get("preview_excerpt") if item.get("preview_status") == "captions_ready" else item.get("description")
+            lines.extend(["", "──────────", f"{i}｜{label}", clean_text(item['title'], 200)])
+            if item.get("author"):
+                lines.append("作者：" + clean_text(item['author'], 90))
+            metrics = []
+            if item.get("duration_s") is not None:
+                metrics.append("⏱ " + format_duration(item['duration_s']))
+            if item.get("view_count") is not None:
+                metrics.append("▶ 播放 " + format_count(item['view_count']))
+            if item.get("like_count") is not None:
+                metrics.append("👍 点赞 " + format_count(item['like_count']))
+            if metrics:
+                lines.append(" · ".join(metrics))
             if clue:
-                lines.append("内容线索：" + clue)
-        lines.append(item["url"])
-    if session.get("sources") and session["warnings"]:
+                clue = clean_text(re.sub(r"https?://\S+", "", clue), 100)
+                if clue:
+                    lines.append("内容线索：" + clue)
+            lines.append(item["url"])
+    if provider is None and session.get("sources") and session["warnings"]:
         lines.extend(["", "；".join(session["warnings"])])
-    lines.extend(["", "回复 1 或 1,3 开始整理；也可回复「换一批」「取消」。", "内容线索依据标题、简介或可用字幕整理，尚未评审完整视频。"])
+    if numbers:
+        example = str(numbers[0])
+        if len(numbers) > 1:
+            example += f" 或 {numbers[0]},{numbers[min(2, len(numbers) - 1)]}"
+        lines.extend(["", f"编号跨平台连续，可跨平台选择。回复 {example} 开始整理；也可回复「换一批」「取消」。", "内容线索依据标题、简介或可用字幕整理，尚未评审完整视频。"])
     return "\n".join(lines)
+
+
+def recommendation_messages(session):
+    """Send each provider separately without changing persisted number mappings."""
+    groups = recommendation_lists(session)
+    if not groups or session["status"] in {"cancelled", "superseded"}:
+        return [format_recommendations(session)]
+    if len(groups) == 1:
+        message = format_recommendations(session)
+        if len(message.encode("utf-16-le")) // 2 <= 4000:
+            return [message]
+    messages = []
+    for group in groups:
+        pending = [group["candidate_numbers"]]
+        while pending:
+            numbers = pending.pop(0)
+            message = format_recommendations(session, provider=group["provider"], candidate_numbers=numbers)
+            # Leave headroom below Telegram's 4096-unit limit, counting emoji
+            # conservatively as UTF-16. Split at card boundaries, never truncate
+            # titles, links or selection mappings to make a message fit.
+            if len(message.encode("utf-16-le")) // 2 > 4000 and len(numbers) > 1:
+                middle = len(numbers) // 2
+                pending[0:0] = [numbers[:middle], numbers[middle:]]
+            else:
+                messages.append(message)
+    return messages
 
 
 async def select_and_ingest(session_id, selection, config, *, scope="local", enricher=None):
